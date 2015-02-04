@@ -1,4 +1,4 @@
-// Browser bundle of nunjucks 1.1.0 (slim, only works with precompiled templates)
+// Browser bundle of nunjucks 1.1.0-obc1 (slim, only works with precompiled templates)
 
 (function() {
 var modules = {};
@@ -962,6 +962,9 @@ var filters = {
                          value: val[k] };
             });
         }
+        else if(lib.isArray(val)) {
+          return val;
+        }
         else {
             throw new lib.TemplateError("list filter: type not iterable");
         }
@@ -973,6 +976,18 @@ var filters = {
 
     random: function(arr) {
         return arr[Math.floor(Math.random() * arr.length)];
+    },
+
+    rejectattr: function(arr, attr) {
+      return arr.filter(function (item) {
+        return !item[attr];
+      });
+    },
+
+    selectattr: function(arr, attr) {
+      return arr.filter(function (item) {
+        return !!item[attr];
+      });
     },
 
     replace: function(str, old, new_, maxCount) {
@@ -1230,9 +1245,9 @@ modules['filters'] = filters;
 
 function cycler(items) {
     var index = -1;
-    this.current = null;
 
     return {
+        current: null,
         reset: function() {
             index = -1;
             this.current = null;
@@ -1639,7 +1654,14 @@ var Template = Obj.extend({
         }
 
         return lib.withPrettyErrors(this.path, this.env.dev, function() {
-            this.compile();
+
+            // Catch compile errors for async rendering
+            try {
+                this.compile();
+            } catch (e) {
+                if (cb) return cb(e);
+                else throw e;
+            }
 
             var context = new Context(ctx || {}, this.blocks);
             var syncResult = null;
@@ -1657,14 +1679,31 @@ var Template = Obj.extend({
         }.bind(this));
     },
 
-    getExported: function(cb) {
-        this.compile();
+
+    getExported: function(ctx, frame, cb) {
+        if (typeof ctx === 'function') {
+            cb = ctx;
+            ctx = {};
+        }
+
+        if (typeof frame === 'function') {
+            cb = frame;
+            frame = null;
+        }
+
+        // Catch compile errors for async rendering
+        try {
+            this.compile();
+        } catch (e) {
+            if (cb) return cb(e);
+            else throw e;
+        }
 
         // Run the rootRenderFunc to populate the context with exported vars
-        var context = new Context({}, this.blocks);
+        var context = new Context(ctx || {}, this.blocks);
         this.rootRenderFunc(this.env,
                             context,
-                            new Frame(),
+                            frame || new Frame(),
                             runtime,
                             function() {
                                 cb(null, context.getExported());
@@ -1689,6 +1728,7 @@ var Template = Obj.extend({
                                           this.env.extensionsList,
                                           this.path,
                                           this.env.lexerTags);
+
             var func = new Function(source);
             props = func();
         }
