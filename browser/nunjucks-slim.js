@@ -1,4 +1,4 @@
-/*! Browser bundle of nunjucks 1.3.5-oddbird1 (slim, only works with precompiled templates) */
+/*! Browser bundle of nunjucks 1.3.5+oddbird1 (slim, only works with precompiled templates) */
 var nunjucks =
 /******/ (function(modules) { // webpackBootstrap
 /******/ 	// The module cache

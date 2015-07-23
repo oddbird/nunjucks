@@ -1,4 +1,4 @@
-/*! Browser bundle of nunjucks 1.3.5-oddbird1  */
+/*! Browser bundle of nunjucks 1.3.5+oddbird1  */
 var nunjucks =
 /******/ (function(modules) { // webpackBootstrap
 /******/ 	// The module cache
