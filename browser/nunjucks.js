@@ -48,11 +48,11 @@ var nunjucks =
 
 	'use strict';
 
-	var lib = __webpack_require__(1);
-	var env = __webpack_require__(2);
-	var Loader = __webpack_require__(3);
-	var loaders = __webpack_require__(4);
-	var precompile = __webpack_require__(14);
+	var lib = __webpack_require__(4);
+	var env = __webpack_require__(10);
+	var Loader = __webpack_require__(15);
+	var loaders = __webpack_require__(14);
+	var precompile = __webpack_require__(3);
 
 	module.exports = {};
 	module.exports.Environment = env.Environment;
@@ -63,13 +63,13 @@ var nunjucks =
 	module.exports.PrecompiledLoader = loaders.PrecompiledLoader;
 	module.exports.WebLoader = loaders.WebLoader;
 
-	module.exports.compiler = __webpack_require__(5);
+	module.exports.compiler = __webpack_require__(1);
 	module.exports.parser = __webpack_require__(6);
 	module.exports.lexer = __webpack_require__(7);
-	module.exports.runtime = __webpack_require__(8);
+	module.exports.runtime = __webpack_require__(9);
 	module.exports.lib = lib;
 
-	module.exports.installJinjaCompat = __webpack_require__(9);
+	module.exports.installJinjaCompat = __webpack_require__(18);
 
 	// A single instance of an environment, since this is so commonly used
 
@@ -139,977 +139,13 @@ var nunjucks =
 
 	'use strict';
 
-	var ArrayProto = Array.prototype;
-	var ObjProto = Object.prototype;
-
-	var escapeMap = {
-	    '&': '&amp;',
-	    '"': '&quot;',
-	    '\'': '&#39;',
-	    '<': '&lt;',
-	    '>': '&gt;'
-	};
-
-	var escapeRegex = /[&"'<>]/g;
-
-	var lookupEscape = function(ch) {
-	    return escapeMap[ch];
-	};
-
-	var exports = module.exports = {};
-
-	exports.prettifyError = function(path, withInternals, err) {
-	    // jshint -W022
-	    // http://jslinterrors.com/do-not-assign-to-the-exception-parameter
-	    if (!err.Update) {
-	        // not one of ours, cast it
-	        err = new exports.TemplateError(err);
-	    }
-	    err.Update(path);
-
-	    // Unless they marked the dev flag, show them a trace from here
-	    if (!withInternals) {
-	        var old = err;
-	        err = new Error(old.message);
-	        err.name = old.name;
-	    }
-
-	    return err;
-	};
-
-	exports.TemplateError = function(message, lineno, colno) {
-	    var err = this;
-
-	    if (message instanceof Error) { // for casting regular js errors
-	        err = message;
-	        message = message.name + ': ' + message.message;
-	    } else {
-	        if(Error.captureStackTrace) {
-	            Error.captureStackTrace(err);
-	        }
-	    }
-
-	    err.name = 'Template render error';
-	    err.message = message;
-	    err.lineno = lineno;
-	    err.colno = colno;
-	    err.firstUpdate = true;
-
-	    err.Update = function(path) {
-	        var message = '(' + (path || 'unknown path') + ')';
-
-	        // only show lineno + colno next to path of template
-	        // where error occurred
-	        if (this.firstUpdate) {
-	            if(this.lineno && this.colno) {
-	                message += ' [Line ' + this.lineno + ', Column ' + this.colno + ']';
-	            }
-	            else if(this.lineno) {
-	                message += ' [Line ' + this.lineno + ']';
-	            }
-	        }
-
-	        message += '\n ';
-	        if (this.firstUpdate) {
-	            message += ' ';
-	        }
-
-	        this.message = message + (this.message || '');
-	        this.firstUpdate = false;
-	        return this;
-	    };
-
-	    return err;
-	};
-
-	exports.TemplateError.prototype = Error.prototype;
-
-	exports.escape = function(val) {
-	  return val.replace(escapeRegex, lookupEscape);
-	};
-
-	exports.isFunction = function(obj) {
-	    return ObjProto.toString.call(obj) === '[object Function]';
-	};
-
-	exports.isArray = Array.isArray || function(obj) {
-	    return ObjProto.toString.call(obj) === '[object Array]';
-	};
-
-	exports.isString = function(obj) {
-	    return ObjProto.toString.call(obj) === '[object String]';
-	};
-
-	exports.isObject = function(obj) {
-	    return ObjProto.toString.call(obj) === '[object Object]';
-	};
-
-	exports.groupBy = function(obj, val) {
-	    var result = {};
-	    var iterator = exports.isFunction(val) ? val : function(obj) { return obj[val]; };
-	    for(var i=0; i<obj.length; i++) {
-	        var value = obj[i];
-	        var key = iterator(value, i);
-	        (result[key] || (result[key] = [])).push(value);
-	    }
-	    return result;
-	};
-
-	exports.toArray = function(obj) {
-	    return Array.prototype.slice.call(obj);
-	};
-
-	exports.without = function(array) {
-	    var result = [];
-	    if (!array) {
-	        return result;
-	    }
-	    var index = -1,
-	    length = array.length,
-	    contains = exports.toArray(arguments).slice(1);
-
-	    while(++index < length) {
-	        if(exports.indexOf(contains, array[index]) === -1) {
-	            result.push(array[index]);
-	        }
-	    }
-	    return result;
-	};
-
-	exports.extend = function(obj, obj2) {
-	    for(var k in obj2) {
-	        obj[k] = obj2[k];
-	    }
-	    return obj;
-	};
-
-	exports.repeat = function(char_, n) {
-	    var str = '';
-	    for(var i=0; i<n; i++) {
-	        str += char_;
-	    }
-	    return str;
-	};
-
-	exports.each = function(obj, func, context) {
-	    if(obj == null) {
-	        return;
-	    }
-
-	    if(ArrayProto.each && obj.each === ArrayProto.each) {
-	        obj.forEach(func, context);
-	    }
-	    else if(obj.length === +obj.length) {
-	        for(var i=0, l=obj.length; i<l; i++) {
-	            func.call(context, obj[i], i, obj);
-	        }
-	    }
-	};
-
-	exports.map = function(obj, func) {
-	    var results = [];
-	    if(obj == null) {
-	        return results;
-	    }
-
-	    if(ArrayProto.map && obj.map === ArrayProto.map) {
-	        return obj.map(func);
-	    }
-
-	    for(var i=0; i<obj.length; i++) {
-	        results[results.length] = func(obj[i], i);
-	    }
-
-	    if(obj.length === +obj.length) {
-	        results.length = obj.length;
-	    }
-
-	    return results;
-	};
-
-	exports.asyncIter = function(arr, iter, cb) {
-	    var i = -1;
-
-	    function next() {
-	        i++;
-
-	        if(i < arr.length) {
-	            iter(arr[i], i, next, cb);
-	        }
-	        else {
-	            cb();
-	        }
-	    }
-
-	    next();
-	};
-
-	exports.asyncFor = function(obj, iter, cb) {
-	    var keys = exports.keys(obj);
-	    var len = keys.length;
-	    var i = -1;
-
-	    function next() {
-	        i++;
-	        var k = keys[i];
-
-	        if(i < len) {
-	            iter(k, obj[k], i, len, next);
-	        }
-	        else {
-	            cb();
-	        }
-	    }
-
-	    next();
-	};
-
-	// https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/indexOf#Polyfill
-	exports.indexOf = Array.prototype.indexOf ?
-	    function (arr, searchElement, fromIndex) {
-	        return Array.prototype.indexOf.call(arr, searchElement, fromIndex);
-	    } :
-	    function (arr, searchElement, fromIndex) {
-	        var length = this.length >>> 0; // Hack to convert object.length to a UInt32
-
-	        fromIndex = +fromIndex || 0;
-
-	        if(Math.abs(fromIndex) === Infinity) {
-	            fromIndex = 0;
-	        }
-
-	        if(fromIndex < 0) {
-	            fromIndex += length;
-	            if (fromIndex < 0) {
-	                fromIndex = 0;
-	            }
-	        }
-
-	        for(;fromIndex < length; fromIndex++) {
-	            if (arr[fromIndex] === searchElement) {
-	                return fromIndex;
-	            }
-	        }
-
-	        return -1;
-	    };
-
-	if(!Array.prototype.map) {
-	    Array.prototype.map = function() {
-	        throw new Error('map is unimplemented for this js engine');
-	    };
-	}
-
-	exports.keys = function(obj) {
-	    if(Object.prototype.keys) {
-	        return obj.keys();
-	    }
-	    else {
-	        var keys = [];
-	        for(var k in obj) {
-	            if(obj.hasOwnProperty(k)) {
-	                keys.push(k);
-	            }
-	        }
-	        return keys;
-	    }
-	};
-
-
-/***/ },
-/* 2 */
-/***/ function(module, exports, __webpack_require__) {
-
-	'use strict';
-
-	var path = __webpack_require__(14);
-	var asap = __webpack_require__(17);
-	var lib = __webpack_require__(1);
-	var Obj = __webpack_require__(10);
-	var compiler = __webpack_require__(5);
-	var builtin_filters = __webpack_require__(11);
-	var builtin_loaders = __webpack_require__(4);
-	var runtime = __webpack_require__(8);
-	var globals = __webpack_require__(12);
-	var Frame = runtime.Frame;
-	var Template;
-
-	// Unconditionally load in this loader, even if no other ones are
-	// included (possible in the slim browser build)
-	builtin_loaders.PrecompiledLoader = __webpack_require__(13);
-
-	// If the user is using the async API, *always* call it
-	// asynchronously even if the template was synchronous.
-	function callbackAsap(cb, err, res) {
-	    asap(function() { cb(err, res); });
-	}
-
-	var Environment = Obj.extend({
-	    init: function(loaders, opts) {
-	        // The dev flag determines the trace that'll be shown on errors.
-	        // If set to true, returns the full trace from the error point,
-	        // otherwise will return trace starting from Template.render
-	        // (the full trace from within nunjucks may confuse developers using
-	        //  the library)
-	        // defaults to false
-	        opts = this.opts = opts || {};
-	        this.opts.dev = !!opts.dev;
-
-	        // The autoescape flag sets global autoescaping. If true,
-	        // every string variable will be escaped by default.
-	        // If false, strings can be manually escaped using the `escape` filter.
-	        // defaults to true
-	        this.opts.autoescape = opts.autoescape != null ? opts.autoescape : true;
-
-	        // If true, this will make the system throw errors if trying
-	        // to output a null or undefined value
-	        this.opts.throwOnUndefined = !!opts.throwOnUndefined;
-	        this.opts.trimBlocks = !!opts.trimBlocks;
-	        this.opts.lstripBlocks = !!opts.lstripBlocks;
-
-	        this.loaders = [];
-
-	        if(!loaders) {
-	            // The filesystem loader is only available server-side
-	            if(builtin_loaders.FileSystemLoader) {
-	                this.loaders = [new builtin_loaders.FileSystemLoader('views')];
-	            }
-	            else if(builtin_loaders.WebLoader) {
-	                this.loaders = [new builtin_loaders.WebLoader('/views')];
-	            }
-	        }
-	        else {
-	            this.loaders = lib.isArray(loaders) ? loaders : [loaders];
-	        }
-
-	        // It's easy to use precompiled templates: just include them
-	        // before you configure nunjucks and this will automatically
-	        // pick it up and use it
-	        if((true) && window.nunjucksPrecompiled) {
-	            this.loaders.unshift(
-	                new builtin_loaders.PrecompiledLoader(window.nunjucksPrecompiled)
-	            );
-	        }
-
-	        this.initCache();
-	        this.filters = {};
-	        this.asyncFilters = [];
-	        this.extensions = {};
-	        this.extensionsList = [];
-
-	        for(var name in builtin_filters) {
-	            this.addFilter(name, builtin_filters[name]);
-	        }
-	    },
-
-	    initCache: function() {
-	        // Caching and cache busting
-	        lib.each(this.loaders, function(loader) {
-	            loader.cache = {};
-
-	            if(typeof loader.on === 'function') {
-	                loader.on('update', function(template) {
-	                    loader.cache[template] = null;
-	                });
-	            }
-	        });
-	    },
-
-	    addExtension: function(name, extension) {
-	        extension._name = name;
-	        this.extensions[name] = extension;
-	        this.extensionsList.push(extension);
-	    },
-
-	    getExtension: function(name) {
-	        return this.extensions[name];
-	    },
-
-	    addGlobal: function(name, value) {
-	        globals[name] = value;
-	    },
-
-	    addFilter: function(name, func, async) {
-	        var wrapped = func;
-
-	        if(async) {
-	            this.asyncFilters.push(name);
-	        }
-	        this.filters[name] = wrapped;
-	    },
-
-	    getFilter: function(name) {
-	        if(!this.filters[name]) {
-	            throw new Error('filter not found: ' + name);
-	        }
-	        return this.filters[name];
-	    },
-
-	    resolveTemplate: function(loader, parentName, filename) {
-	        var isRelative = (loader.isRelative && parentName)? loader.isRelative(filename) : false;
-	        return (isRelative && loader.resolve)? loader.resolve(parentName, filename) : filename;
-	    },
-
-	    getTemplate: function(name, eagerCompile, parentName, cb) {
-	        var that = this;
-	        var tmpl = null;
-	        if(name && name.raw) {
-	            // this fixes autoescape for templates referenced in symbols
-	            name = name.raw;
-	        }
-
-	        if(lib.isFunction(parentName)) {
-	            cb = parentName;
-	            parentName = null;
-	            eagerCompile = eagerCompile || false;
-	        }
-
-	        if(lib.isFunction(eagerCompile)) {
-	            cb = eagerCompile;
-	            eagerCompile = false;
-	        }
-
-	        if(typeof name !== 'string') {
-	            throw new Error('template names must be a string: ' + name);
-	        }
-
-	        for (var i = 0; i < this.loaders.length; i++) {
-	            var _name = this.resolveTemplate(this.loaders[i], parentName, name);
-	            tmpl = this.loaders[i].cache[_name];
-	            if (tmpl) break;
-	        }
-
-	        if(tmpl) {
-	            if(eagerCompile) {
-	                tmpl.compile();
-	            }
-
-	            if(cb) {
-	                cb(null, tmpl);
-	            }
-	            else {
-	                return tmpl;
-	            }
-	        } else {
-	            var syncResult;
-	            var _this = this;
-
-	            var createTemplate = function(info) {
-	                if(!info) {
-	                    var err = new Error('template not found: ' + name);
-	                    if(cb) {
-	                        cb(err);
-	                    }
-	                    else {
-	                        throw err;
-	                    }
-	                }
-	                else {
-	                    var tmpl = new Template(info.src, _this,
-	                                            info.path, eagerCompile);
-
-	                    if(!info.noCache) {
-	                        info.loader.cache[name] = tmpl;
-	                    }
-
-	                    if(cb) {
-	                        cb(null, tmpl);
-	                    }
-	                    else {
-	                        syncResult = tmpl;
-	                    }
-	                }
-	            };
-
-	            lib.asyncIter(this.loaders, function(loader, i, next, done) {
-	                function handle(src) {
-	                    if(src) {
-	                        src.loader = loader;
-	                        done(src);
-	                    }
-	                    else {
-	                        next();
-	                    }
-	                }
-
-	                // Resolve name relative to parentName
-	                name = that.resolveTemplate(loader, parentName, name);
-
-	                if(loader.async) {
-	                    loader.getSource(name, function(err, src) {
-	                        if(err) { throw err; }
-	                        handle(src);
-	                    });
-	                }
-	                else {
-	                    handle(loader.getSource(name));
-	                }
-	            }, createTemplate);
-
-	            return syncResult;
-	        }
-	    },
-
-	    express: function(app) {
-	        var env = this;
-
-	        function NunjucksView(name, opts) {
-	            this.name          = name;
-	            this.path          = name;
-	            this.defaultEngine = opts.defaultEngine;
-	            this.ext           = path.extname(name);
-	            if (!this.ext && !this.defaultEngine) throw new Error('No default engine was specified and no extension was provided.');
-	            if (!this.ext) this.name += (this.ext = ('.' !== this.defaultEngine[0] ? '.' : '') + this.defaultEngine);
-	        }
-
-	        NunjucksView.prototype.render = function(opts, cb) {
-	          env.render(this.name, opts, cb);
-	        };
-
-	        app.set('view', NunjucksView);
-	    },
-
-	    render: function(name, ctx, cb) {
-	        if(lib.isFunction(ctx)) {
-	            cb = ctx;
-	            ctx = null;
-	        }
-
-	        // We support a synchronous API to make it easier to migrate
-	        // existing code to async. This works because if you don't do
-	        // anything async work, the whole thing is actually run
-	        // synchronously.
-	        var syncResult = null;
-
-	        this.getTemplate(name, function(err, tmpl) {
-	            if(err && cb) {
-	                callbackAsap(cb, err);
-	            }
-	            else if(err) {
-	                throw err;
-	            }
-	            else {
-	                syncResult = tmpl.render(ctx, cb);
-	            }
-	        });
-
-	        return syncResult;
-	    },
-
-	    renderString: function(src, ctx, opts, cb) {
-	        if(lib.isFunction(opts)) {
-	            cb = opts;
-	            opts = {};
-	        }
-	        opts = opts || {};
-
-	        var tmpl = new Template(src, this, opts.path);
-	        return tmpl.render(ctx, cb);
-	    }
-	});
-
-	var Context = Obj.extend({
-	    init: function(ctx, blocks) {
-	        // Make a duplicate of ctx
-	        this.ctx = {};
-	        for(var k in ctx) {
-	            if(ctx.hasOwnProperty(k)) {
-	                this.ctx[k] = ctx[k];
-	            }
-	        }
-
-	        this.blocks = {};
-	        this.exported = [];
-
-	        for(var name in blocks) {
-	            this.addBlock(name, blocks[name]);
-	        }
-	    },
-
-	    lookup: function(name) {
-	        // This is one of the most called functions, so optimize for
-	        // the typical case where the name isn't in the globals
-	        if(name in globals && !(name in this.ctx)) {
-	            return globals[name];
-	        }
-	        else {
-	            return this.ctx[name];
-	        }
-	    },
-
-	    setVariable: function(name, val) {
-	        this.ctx[name] = val;
-	    },
-
-	    getVariables: function() {
-	        return this.ctx;
-	    },
-
-	    addBlock: function(name, block) {
-	        this.blocks[name] = this.blocks[name] || [];
-	        this.blocks[name].push(block);
-	    },
-
-	    getBlock: function(name) {
-	        if(!this.blocks[name]) {
-	            throw new Error('unknown block "' + name + '"');
-	        }
-
-	        return this.blocks[name][0];
-	    },
-
-	    getSuper: function(env, name, block, frame, runtime, cb) {
-	        var idx = lib.indexOf(this.blocks[name] || [], block);
-	        var blk = this.blocks[name][idx + 1];
-	        var context = this;
-
-	        if(idx === -1 || !blk) {
-	            throw new Error('no super block available for "' + name + '"');
-	        }
-
-	        blk(env, context, frame, runtime, cb);
-	    },
-
-	    addExport: function(name) {
-	        this.exported.push(name);
-	    },
-
-	    getExported: function() {
-	        var exported = {};
-	        for(var i=0; i<this.exported.length; i++) {
-	            var name = this.exported[i];
-	            exported[name] = this.ctx[name];
-	        }
-	        return exported;
-	    }
-	});
-
-	Template = Obj.extend({
-	    init: function (src, env, path, eagerCompile) {
-	        this.env = env || new Environment();
-
-	        if(lib.isObject(src)) {
-	            switch(src.type) {
-	            case 'code': this.tmplProps = src.obj; break;
-	            case 'string': this.tmplStr = src.obj; break;
-	            }
-	        }
-	        else if(lib.isString(src)) {
-	            this.tmplStr = src;
-	        }
-	        else {
-	            throw new Error('src must be a string or an object describing ' +
-	                            'the source');
-	        }
-
-	        this.path = path;
-
-	        if(eagerCompile) {
-	            var _this = this;
-	            try {
-	                _this._compile();
-	            }
-	            catch(err) {
-	                throw lib.prettifyError(this.path, this.env.dev, err);
-	            }
-	        }
-	        else {
-	            this.compiled = false;
-	        }
-	    },
-
-	    render: function(ctx, parentFrame, cb) {
-	        if (typeof ctx === 'function') {
-	            cb = ctx;
-	            ctx = {};
-	        }
-	        else if (typeof parentFrame === 'function') {
-	            cb = parentFrame;
-	            parentFrame = null;
-	        }
-
-	        var forceAsync = true;
-	        if(parentFrame) {
-	            // If there is a frame, we are being called from internal
-	            // code of another template, and the internal system
-	            // depends on the sync/async nature of the parent template
-	            // to be inherited, so force an async callback
-	            forceAsync = false;
-	        }
-
-	        var _this = this;
-	        // Catch compile errors for async rendering
-	        try {
-	            _this.compile();
-	        } catch (_err) {
-	            var err = lib.prettifyError(this.path, this.env.dev, _err);
-	            if (cb) return callbackAsap(cb, err);
-	            else throw err;
-	        }
-
-	        var context = new Context(ctx || {}, _this.blocks);
-	        var frame = parentFrame ? parentFrame.push() : new Frame();
-	        frame.topLevel = true;
-	        var syncResult = null;
-
-	        _this.rootRenderFunc(
-	            _this.env,
-	            context,
-	            frame || new Frame(),
-	            runtime,
-	            function(err, res) {
-	                if(err) {
-	                    err = lib.prettifyError(_this.path, _this.env.dev, err);
-	                }
-
-	                if(cb) {
-	                    if(forceAsync) {
-	                        callbackAsap(cb, err, res);
-	                    }
-	                    else {
-	                        cb(err, res);
-	                    }
-	                }
-	                else {
-	                    if(err) { throw err; }
-	                    syncResult = res;
-	                }
-	            }
-	        );
-
-	        return syncResult;
-	    },
-
-
-	    getExported: function(ctx, parentFrame, cb) {
-	        if (typeof ctx === 'function') {
-	            cb = ctx;
-	            ctx = {};
-	        }
-
-	        if (typeof parentFrame === 'function') {
-	            cb = parentFrame;
-	            parentFrame = null;
-	        }
-
-	        // Catch compile errors for async rendering
-	        try {
-	            this.compile();
-	        } catch (e) {
-	            if (cb) return cb(e);
-	            else throw e;
-	        }
-
-	        var frame = parentFrame ? parentFrame.push() : new Frame();
-	        frame.topLevel = true;
-
-	        // Run the rootRenderFunc to populate the context with exported vars
-	        var context = new Context(ctx || {}, this.blocks);
-	        this.rootRenderFunc(this.env,
-	                            context,
-	                            frame,
-	                            runtime,
-	                            function() {
-	                                cb(null, context.getExported());
-	                            });
-	    },
-
-	    compile: function() {
-	        if(!this.compiled) {
-	            this._compile();
-	        }
-	    },
-
-	    _compile: function() {
-	        var props;
-
-	        if(this.tmplProps) {
-	            props = this.tmplProps;
-	        }
-	        else {
-	            var source = compiler.compile(this.tmplStr,
-	                                          this.env.asyncFilters,
-	                                          this.env.extensionsList,
-	                                          this.path,
-	                                          this.env.opts);
-
-	            /* jslint evil: true */
-	            var func = new Function(source);
-	            props = func();
-	        }
-
-	        this.blocks = this._getBlocks(props);
-	        this.rootRenderFunc = props.root;
-	        this.compiled = true;
-	    },
-
-	    _getBlocks: function(props) {
-	        var blocks = {};
-
-	        for(var k in props) {
-	            if(k.slice(0, 2) === 'b_') {
-	                blocks[k.slice(2)] = props[k];
-	            }
-	        }
-
-	        return blocks;
-	    }
-	});
-
-	module.exports = {
-	    Environment: Environment,
-	    Template: Template
-	};
-
-
-/***/ },
-/* 3 */
-/***/ function(module, exports, __webpack_require__) {
-
-	'use strict';
-
-	var path = __webpack_require__(14);
-	var Obj = __webpack_require__(10);
-	var lib = __webpack_require__(1);
-
-	var Loader = Obj.extend({
-	    on: function(name, func) {
-	        this.listeners = this.listeners || {};
-	        this.listeners[name] = this.listeners[name] || [];
-	        this.listeners[name].push(func);
-	    },
-
-	    emit: function(name /*, arg1, arg2, ...*/) {
-	        var args = Array.prototype.slice.call(arguments, 1);
-
-	        if(this.listeners && this.listeners[name]) {
-	            lib.each(this.listeners[name], function(listener) {
-	                listener.apply(null, args);
-	            });
-	        }
-	    },
-
-	    resolve: function(from, to) {
-	        return path.resolve(path.dirname(from), to);
-	    },
-
-	    isRelative: function(filename) {
-	        return (filename.indexOf('./') === 0 || filename.indexOf('../') === 0);
-	    }
-	});
-
-	module.exports = Loader;
-
-
-/***/ },
-/* 4 */
-/***/ function(module, exports, __webpack_require__) {
-
-	'use strict';
-
-	var Loader = __webpack_require__(3);
-	var PrecompiledLoader = __webpack_require__(13);
-
-	var WebLoader = Loader.extend({
-	    init: function(baseURL, opts) {
-	        this.baseURL = baseURL || '';
-
-	        // By default, the cache is turned off because there's no way
-	        // to "watch" templates over HTTP, so they are re-downloaded
-	        // and compiled each time. (Remember, PRECOMPILE YOUR
-	        // TEMPLATES in production!)
-	        this.useCache = opts.useCache;
-
-	        // We default `async` to false so that the simple synchronous
-	        // API can be used when you aren't doing anything async in
-	        // your templates (which is most of the time). This performs a
-	        // sync ajax request, but that's ok because it should *only*
-	        // happen in development. PRECOMPILE YOUR TEMPLATES.
-	        this.async = opts.async;
-	    },
-
-	    resolve: function(from, to) { // jshint ignore:line
-	        throw new Error('relative templates not support in the browser yet');
-	    },
-
-	    getSource: function(name, cb) {
-	        var useCache = this.useCache;
-	        var result;
-	        this.fetch(this.baseURL + '/' + name, function(err, src) {
-	            if(err) {
-	                if(!cb) {
-	                    throw err;
-	                }
-	                cb(err);
-	            }
-	            else {
-	                result = { src: src,
-	                           path: name,
-	                           noCache: !useCache };
-	                if(cb) {
-	                    cb(null, result);
-	                }
-	            }
-	        });
-
-	        // if this WebLoader isn't running asynchronously, the
-	        // fetch above would actually run sync and we'll have a
-	        // result here
-	        return result;
-	    },
-
-	    fetch: function(url, cb) {
-	        // Only in the browser please
-	        var ajax;
-	        var loading = true;
-
-	        if(window.XMLHttpRequest) { // Mozilla, Safari, ...
-	            ajax = new XMLHttpRequest();
-	        }
-	        else if(window.ActiveXObject) { // IE 8 and older
-	            /* global ActiveXObject */
-	            ajax = new ActiveXObject('Microsoft.XMLHTTP');
-	        }
-
-	        ajax.onreadystatechange = function() {
-	            if(ajax.readyState === 4 && loading) {
-	                loading = false;
-	                if(ajax.status === 0 || ajax.status === 200) {
-	                    cb(null, ajax.responseText);
-	                }
-	                else {
-	                    cb(ajax.responseText);
-	                }
-	            }
-	        };
-
-	        url += (url.indexOf('?') === -1 ? '?' : '&') + 's=' +
-	               (new Date().getTime());
-
-	        ajax.open('GET', url, this.async);
-	        ajax.send();
-	    }
-	});
-
-	module.exports = {
-	    WebLoader: WebLoader,
-	    PrecompiledLoader: PrecompiledLoader
-	};
-
-
-/***/ },
-/* 5 */
-/***/ function(module, exports, __webpack_require__) {
-
-	'use strict';
-
-	var lib = __webpack_require__(1);
+	var lib = __webpack_require__(4);
 	var parser = __webpack_require__(6);
-	var transformer = __webpack_require__(15);
-	var nodes = __webpack_require__(16);
+	var transformer = __webpack_require__(8);
+	var nodes = __webpack_require__(2);
 	// jshint -W079
-	var Object = __webpack_require__(10);
-	var Frame = __webpack_require__(8).Frame;
+	var Object = __webpack_require__(5);
+	var Frame = __webpack_require__(9).Frame;
 
 	// These are all the same for now, but shouldn't be passed straight
 	// through
@@ -2253,16 +1289,681 @@ var nunjucks =
 
 
 /***/ },
+/* 2 */
+/***/ function(module, exports, __webpack_require__) {
+
+	/* WEBPACK VAR INJECTION */(function(process) {'use strict';
+
+	var lib = __webpack_require__(4);
+	// jshint -W079
+	var Object = __webpack_require__(5);
+
+	function traverseAndCheck(obj, type, results) {
+	    if(obj instanceof type) {
+	        results.push(obj);
+	    }
+
+	    if(obj instanceof Node) {
+	        obj.findAll(type, results);
+	    }
+	}
+
+	var Node = Object.extend('Node', {
+	    init: function(lineno, colno) {
+	        this.lineno = lineno;
+	        this.colno = colno;
+
+	        var fields = this.fields;
+	        for(var i = 0, l = fields.length; i < l; i++) {
+	            var field = fields[i];
+
+	            // The first two args are line/col numbers, so offset by 2
+	            var val = arguments[i + 2];
+
+	            // Fields should never be undefined, but null. It makes
+	            // testing easier to normalize values.
+	            if(val === undefined) {
+	                val = null;
+	            }
+
+	            this[field] = val;
+	        }
+	    },
+
+	    findAll: function(type, results) {
+	        results = results || [];
+
+	        var i, l;
+	        if(this instanceof NodeList) {
+	            var children = this.children;
+
+	            for(i = 0, l = children.length; i < l; i++) {
+	                traverseAndCheck(children[i], type, results);
+	            }
+	        }
+	        else {
+	            var fields = this.fields;
+
+	            for(i = 0, l = fields.length; i < l; i++) {
+	                traverseAndCheck(this[fields[i]], type, results);
+	            }
+	        }
+
+	        return results;
+	    },
+
+	    iterFields: function(func) {
+	        lib.each(this.fields, function(field) {
+	            func(this[field], field);
+	        }, this);
+	    }
+	});
+
+	// Abstract nodes
+	var Value = Node.extend('Value', { fields: ['value'] });
+
+	// Concrete nodes
+	var NodeList = Node.extend('NodeList', {
+	    fields: ['children'],
+
+	    init: function(lineno, colno, nodes) {
+	        this.parent(lineno, colno, nodes || []);
+	    },
+
+	    addChild: function(node) {
+	        this.children.push(node);
+	    }
+	});
+
+	var Root = NodeList.extend('Root');
+	var Literal = Value.extend('Literal');
+	var Symbol = Value.extend('Symbol');
+	var Group = NodeList.extend('Group');
+	var Array = NodeList.extend('Array');
+	var Pair = Node.extend('Pair', { fields: ['key', 'value'] });
+	var Dict = NodeList.extend('Dict');
+	var LookupVal = Node.extend('LookupVal', { fields: ['target', 'val'] });
+	var If = Node.extend('If', { fields: ['cond', 'body', 'else_'] });
+	var IfAsync = If.extend('IfAsync');
+	var InlineIf = Node.extend('InlineIf', { fields: ['cond', 'body', 'else_'] });
+	var For = Node.extend('For', { fields: ['arr', 'name', 'body', 'else_'] });
+	var AsyncEach = For.extend('AsyncEach');
+	var AsyncAll = For.extend('AsyncAll');
+	var Macro = Node.extend('Macro', { fields: ['name', 'args', 'body'] });
+	var Caller = Macro.extend('Caller');
+	var Import = Node.extend('Import', { fields: ['template', 'target', 'withContext'] });
+	var FromImport = Node.extend('FromImport', {
+	    fields: ['template', 'names', 'withContext'],
+
+	    init: function(lineno, colno, template, names, withContext) {
+	        this.parent(lineno, colno,
+	                    template,
+	                    names || new NodeList(), withContext);
+	    }
+	});
+	var FunCall = Node.extend('FunCall', { fields: ['name', 'args'] });
+	var Filter = FunCall.extend('Filter');
+	var FilterAsync = Filter.extend('FilterAsync', {
+	    fields: ['name', 'args', 'symbol']
+	});
+	var KeywordArgs = Dict.extend('KeywordArgs');
+	var Block = Node.extend('Block', { fields: ['name', 'body'] });
+	var Super = Node.extend('Super', { fields: ['blockName', 'symbol'] });
+	var TemplateRef = Node.extend('TemplateRef', { fields: ['template'] });
+	var Extends = TemplateRef.extend('Extends');
+	var Include = TemplateRef.extend('Include');
+	var Set = Node.extend('Set', { fields: ['targets', 'value'] });
+	var Output = NodeList.extend('Output');
+	var TemplateData = Literal.extend('TemplateData');
+	var UnaryOp = Node.extend('UnaryOp', { fields: ['target'] });
+	var BinOp = Node.extend('BinOp', { fields: ['left', 'right'] });
+	var In = BinOp.extend('In');
+	var Or = BinOp.extend('Or');
+	var And = BinOp.extend('And');
+	var Not = UnaryOp.extend('Not');
+	var Add = BinOp.extend('Add');
+	var Sub = BinOp.extend('Sub');
+	var Mul = BinOp.extend('Mul');
+	var Div = BinOp.extend('Div');
+	var FloorDiv = BinOp.extend('FloorDiv');
+	var Mod = BinOp.extend('Mod');
+	var Pow = BinOp.extend('Pow');
+	var Neg = UnaryOp.extend('Neg');
+	var Pos = UnaryOp.extend('Pos');
+	var Compare = Node.extend('Compare', { fields: ['expr', 'ops'] });
+	var CompareOperand = Node.extend('CompareOperand', {
+	    fields: ['expr', 'type']
+	});
+
+	var CallExtension = Node.extend('CallExtension', {
+	    fields: ['extName', 'prop', 'args', 'contentArgs'],
+
+	    init: function(ext, prop, args, contentArgs) {
+	        this.extName = ext._name || ext;
+	        this.prop = prop;
+	        this.args = args || new NodeList();
+	        this.contentArgs = contentArgs || [];
+	        this.autoescape = ext.autoescape;
+	    }
+	});
+
+	var CallExtensionAsync = CallExtension.extend('CallExtensionAsync');
+
+	// Print the AST in a nicely formatted tree format for debuggin
+	function printNodes(node, indent) {
+	    indent = indent || 0;
+
+	    // This is hacky, but this is just a debugging function anyway
+	    function print(str, indent, inline) {
+	        var lines = str.split('\n');
+
+	        for(var i=0; i<lines.length; i++) {
+	            if(lines[i]) {
+	                if((inline && i > 0) || !inline) {
+	                    for(var j=0; j<indent; j++) {
+	                        process.stdout.write(' ');
+	                    }
+	                }
+	            }
+
+	            if(i === lines.length-1) {
+	                process.stdout.write(lines[i]);
+	            }
+	            else {
+	                process.stdout.write(lines[i] + '\n');
+	            }
+	        }
+	    }
+
+	    print(node.typename + ': ', indent);
+
+	    if(node instanceof NodeList) {
+	        print('\n');
+	        lib.each(node.children, function(n) {
+	            printNodes(n, indent + 2);
+	        });
+	    }
+	    else if(node instanceof CallExtension) {
+	        print(node.extName + '.' + node.prop);
+	        print('\n');
+
+	        if(node.args) {
+	            printNodes(node.args, indent + 2);
+	        }
+
+	        if(node.contentArgs) {
+	            lib.each(node.contentArgs, function(n) {
+	                printNodes(n, indent + 2);
+	            });
+	        }
+	    }
+	    else {
+	        var nodes = null;
+	        var props = null;
+
+	        node.iterFields(function(val, field) {
+	            if(val instanceof Node) {
+	                nodes = nodes || {};
+	                nodes[field] = val;
+	            }
+	            else {
+	                props = props || {};
+	                props[field] = val;
+	            }
+	        });
+
+	        if(props) {
+	            print(JSON.stringify(props, null, 2) + '\n', null, true);
+	        }
+	        else {
+	            print('\n');
+	        }
+
+	        if(nodes) {
+	            for(var k in nodes) {
+	                printNodes(nodes[k], indent + 2);
+	            }
+	        }
+
+	    }
+	}
+
+	// var t = new NodeList(0, 0,
+	//                      [new Value(0, 0, 3),
+	//                       new Value(0, 0, 10),
+	//                       new Pair(0, 0,
+	//                                new Value(0, 0, 'key'),
+	//                                new Value(0, 0, 'value'))]);
+	// printNodes(t);
+
+	module.exports = {
+	    Node: Node,
+	    Root: Root,
+	    NodeList: NodeList,
+	    Value: Value,
+	    Literal: Literal,
+	    Symbol: Symbol,
+	    Group: Group,
+	    Array: Array,
+	    Pair: Pair,
+	    Dict: Dict,
+	    Output: Output,
+	    TemplateData: TemplateData,
+	    If: If,
+	    IfAsync: IfAsync,
+	    InlineIf: InlineIf,
+	    For: For,
+	    AsyncEach: AsyncEach,
+	    AsyncAll: AsyncAll,
+	    Macro: Macro,
+	    Caller: Caller,
+	    Import: Import,
+	    FromImport: FromImport,
+	    FunCall: FunCall,
+	    Filter: Filter,
+	    FilterAsync: FilterAsync,
+	    KeywordArgs: KeywordArgs,
+	    Block: Block,
+	    Super: Super,
+	    Extends: Extends,
+	    Include: Include,
+	    Set: Set,
+	    LookupVal: LookupVal,
+	    BinOp: BinOp,
+	    In: In,
+	    Or: Or,
+	    And: And,
+	    Not: Not,
+	    Add: Add,
+	    Sub: Sub,
+	    Mul: Mul,
+	    Div: Div,
+	    FloorDiv: FloorDiv,
+	    Mod: Mod,
+	    Pow: Pow,
+	    Neg: Neg,
+	    Pos: Pos,
+	    Compare: Compare,
+	    CompareOperand: CompareOperand,
+
+	    CallExtension: CallExtension,
+	    CallExtensionAsync: CallExtensionAsync,
+
+	    printNodes: printNodes
+	};
+
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(3)))
+
+/***/ },
+/* 3 */
+/***/ function(module, exports) {
+
+	
+
+/***/ },
+/* 4 */
+/***/ function(module, exports) {
+
+	'use strict';
+
+	var ArrayProto = Array.prototype;
+	var ObjProto = Object.prototype;
+
+	var escapeMap = {
+	    '&': '&amp;',
+	    '"': '&quot;',
+	    '\'': '&#39;',
+	    '<': '&lt;',
+	    '>': '&gt;'
+	};
+
+	var escapeRegex = /[&"'<>]/g;
+
+	var lookupEscape = function(ch) {
+	    return escapeMap[ch];
+	};
+
+	var exports = module.exports = {};
+
+	exports.prettifyError = function(path, withInternals, err) {
+	    // jshint -W022
+	    // http://jslinterrors.com/do-not-assign-to-the-exception-parameter
+	    if (!err.Update) {
+	        // not one of ours, cast it
+	        err = new exports.TemplateError(err);
+	    }
+	    err.Update(path);
+
+	    // Unless they marked the dev flag, show them a trace from here
+	    if (!withInternals) {
+	        var old = err;
+	        err = new Error(old.message);
+	        err.name = old.name;
+	    }
+
+	    return err;
+	};
+
+	exports.TemplateError = function(message, lineno, colno) {
+	    var err = this;
+
+	    if (message instanceof Error) { // for casting regular js errors
+	        err = message;
+	        message = message.name + ': ' + message.message;
+	    } else {
+	        if(Error.captureStackTrace) {
+	            Error.captureStackTrace(err);
+	        }
+	    }
+
+	    err.name = 'Template render error';
+	    err.message = message;
+	    err.lineno = lineno;
+	    err.colno = colno;
+	    err.firstUpdate = true;
+
+	    err.Update = function(path) {
+	        var message = '(' + (path || 'unknown path') + ')';
+
+	        // only show lineno + colno next to path of template
+	        // where error occurred
+	        if (this.firstUpdate) {
+	            if(this.lineno && this.colno) {
+	                message += ' [Line ' + this.lineno + ', Column ' + this.colno + ']';
+	            }
+	            else if(this.lineno) {
+	                message += ' [Line ' + this.lineno + ']';
+	            }
+	        }
+
+	        message += '\n ';
+	        if (this.firstUpdate) {
+	            message += ' ';
+	        }
+
+	        this.message = message + (this.message || '');
+	        this.firstUpdate = false;
+	        return this;
+	    };
+
+	    return err;
+	};
+
+	exports.TemplateError.prototype = Error.prototype;
+
+	exports.escape = function(val) {
+	  return val.replace(escapeRegex, lookupEscape);
+	};
+
+	exports.isFunction = function(obj) {
+	    return ObjProto.toString.call(obj) === '[object Function]';
+	};
+
+	exports.isArray = Array.isArray || function(obj) {
+	    return ObjProto.toString.call(obj) === '[object Array]';
+	};
+
+	exports.isString = function(obj) {
+	    return ObjProto.toString.call(obj) === '[object String]';
+	};
+
+	exports.isObject = function(obj) {
+	    return ObjProto.toString.call(obj) === '[object Object]';
+	};
+
+	exports.groupBy = function(obj, val) {
+	    var result = {};
+	    var iterator = exports.isFunction(val) ? val : function(obj) { return obj[val]; };
+	    for(var i=0; i<obj.length; i++) {
+	        var value = obj[i];
+	        var key = iterator(value, i);
+	        (result[key] || (result[key] = [])).push(value);
+	    }
+	    return result;
+	};
+
+	exports.toArray = function(obj) {
+	    return Array.prototype.slice.call(obj);
+	};
+
+	exports.without = function(array) {
+	    var result = [];
+	    if (!array) {
+	        return result;
+	    }
+	    var index = -1,
+	    length = array.length,
+	    contains = exports.toArray(arguments).slice(1);
+
+	    while(++index < length) {
+	        if(exports.indexOf(contains, array[index]) === -1) {
+	            result.push(array[index]);
+	        }
+	    }
+	    return result;
+	};
+
+	exports.extend = function(obj, obj2) {
+	    for(var k in obj2) {
+	        obj[k] = obj2[k];
+	    }
+	    return obj;
+	};
+
+	exports.repeat = function(char_, n) {
+	    var str = '';
+	    for(var i=0; i<n; i++) {
+	        str += char_;
+	    }
+	    return str;
+	};
+
+	exports.each = function(obj, func, context) {
+	    if(obj == null) {
+	        return;
+	    }
+
+	    if(ArrayProto.each && obj.each === ArrayProto.each) {
+	        obj.forEach(func, context);
+	    }
+	    else if(obj.length === +obj.length) {
+	        for(var i=0, l=obj.length; i<l; i++) {
+	            func.call(context, obj[i], i, obj);
+	        }
+	    }
+	};
+
+	exports.map = function(obj, func) {
+	    var results = [];
+	    if(obj == null) {
+	        return results;
+	    }
+
+	    if(ArrayProto.map && obj.map === ArrayProto.map) {
+	        return obj.map(func);
+	    }
+
+	    for(var i=0; i<obj.length; i++) {
+	        results[results.length] = func(obj[i], i);
+	    }
+
+	    if(obj.length === +obj.length) {
+	        results.length = obj.length;
+	    }
+
+	    return results;
+	};
+
+	exports.asyncIter = function(arr, iter, cb) {
+	    var i = -1;
+
+	    function next() {
+	        i++;
+
+	        if(i < arr.length) {
+	            iter(arr[i], i, next, cb);
+	        }
+	        else {
+	            cb();
+	        }
+	    }
+
+	    next();
+	};
+
+	exports.asyncFor = function(obj, iter, cb) {
+	    var keys = exports.keys(obj);
+	    var len = keys.length;
+	    var i = -1;
+
+	    function next() {
+	        i++;
+	        var k = keys[i];
+
+	        if(i < len) {
+	            iter(k, obj[k], i, len, next);
+	        }
+	        else {
+	            cb();
+	        }
+	    }
+
+	    next();
+	};
+
+	// https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Array/indexOf#Polyfill
+	exports.indexOf = Array.prototype.indexOf ?
+	    function (arr, searchElement, fromIndex) {
+	        return Array.prototype.indexOf.call(arr, searchElement, fromIndex);
+	    } :
+	    function (arr, searchElement, fromIndex) {
+	        var length = this.length >>> 0; // Hack to convert object.length to a UInt32
+
+	        fromIndex = +fromIndex || 0;
+
+	        if(Math.abs(fromIndex) === Infinity) {
+	            fromIndex = 0;
+	        }
+
+	        if(fromIndex < 0) {
+	            fromIndex += length;
+	            if (fromIndex < 0) {
+	                fromIndex = 0;
+	            }
+	        }
+
+	        for(;fromIndex < length; fromIndex++) {
+	            if (arr[fromIndex] === searchElement) {
+	                return fromIndex;
+	            }
+	        }
+
+	        return -1;
+	    };
+
+	if(!Array.prototype.map) {
+	    Array.prototype.map = function() {
+	        throw new Error('map is unimplemented for this js engine');
+	    };
+	}
+
+	exports.keys = function(obj) {
+	    if(Object.prototype.keys) {
+	        return obj.keys();
+	    }
+	    else {
+	        var keys = [];
+	        for(var k in obj) {
+	            if(obj.hasOwnProperty(k)) {
+	                keys.push(k);
+	            }
+	        }
+	        return keys;
+	    }
+	};
+
+
+/***/ },
+/* 5 */
+/***/ function(module, exports) {
+
+	'use strict';
+
+	// A simple class system, more documentation to come
+
+	function extend(cls, name, props) {
+	    // This does that same thing as Object.create, but with support for IE8
+	    var F = function() {};
+	    F.prototype = cls.prototype;
+	    var prototype = new F();
+
+	    // jshint undef: false
+	    var fnTest = /xyz/.test(function(){ xyz; }) ? /\bparent\b/ : /.*/;
+	    props = props || {};
+
+	    for(var k in props) {
+	        var src = props[k];
+	        var parent = prototype[k];
+
+	        if(typeof parent === 'function' &&
+	           typeof src === 'function' &&
+	           fnTest.test(src)) {
+	            /*jshint -W083 */
+	            prototype[k] = (function (src, parent) {
+	                return function() {
+	                    // Save the current parent method
+	                    var tmp = this.parent;
+
+	                    // Set parent to the previous method, call, and restore
+	                    this.parent = parent;
+	                    var res = src.apply(this, arguments);
+	                    this.parent = tmp;
+
+	                    return res;
+	                };
+	            })(src, parent);
+	        }
+	        else {
+	            prototype[k] = src;
+	        }
+	    }
+
+	    prototype.typename = name;
+
+	    var new_cls = function() {
+	        if(prototype.init) {
+	            prototype.init.apply(this, arguments);
+	        }
+	    };
+
+	    new_cls.prototype = prototype;
+	    new_cls.prototype.constructor = new_cls;
+
+	    new_cls.extend = function(name, props) {
+	        if(typeof name === 'object') {
+	            props = name;
+	            name = 'anonymous';
+	        }
+	        return extend(new_cls, name, props);
+	    };
+
+	    return new_cls;
+	}
+
+	module.exports = extend(Object, 'Object', {});
+
+
+/***/ },
 /* 6 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 
 	var lexer = __webpack_require__(7);
-	var nodes = __webpack_require__(16);
+	var nodes = __webpack_require__(2);
 	// jshint -W079
-	var Object = __webpack_require__(10);
-	var lib = __webpack_require__(1);
+	var Object = __webpack_require__(5);
+	var lib = __webpack_require__(4);
 
 	var Parser = Object.extend({
 	    init: function (tokens) {
@@ -3506,7 +3207,7 @@ var nunjucks =
 
 	'use strict';
 
-	var lib = __webpack_require__(1);
+	var lib = __webpack_require__(4);
 
 	var whitespaceChars = ' \n\t\r\u00A0';
 	var delimChars = '()[]{}%*-+/#,:|.<>=!';
@@ -3981,8 +3682,255 @@ var nunjucks =
 
 	'use strict';
 
-	var lib = __webpack_require__(1);
-	var Obj = __webpack_require__(10);
+	var nodes = __webpack_require__(2);
+	var lib = __webpack_require__(4);
+
+	var sym = 0;
+	function gensym() {
+	    return 'hole_' + sym++;
+	}
+
+	// copy-on-write version of map
+	function mapCOW(arr, func) {
+	    var res = null;
+
+	    for(var i=0; i<arr.length; i++) {
+	        var item = func(arr[i]);
+
+	        if(item !== arr[i]) {
+	            if(!res) {
+	                res = arr.slice();
+	            }
+
+	            res[i] = item;
+	        }
+	    }
+
+	    return res || arr;
+	}
+
+	function walk(ast, func, depthFirst) {
+	    if(!(ast instanceof nodes.Node)) {
+	        return ast;
+	    }
+
+	    if(!depthFirst) {
+	        var astT = func(ast);
+
+	        if(astT && astT !== ast) {
+	            return astT;
+	        }
+	    }
+
+	    if(ast instanceof nodes.NodeList) {
+	        var children = mapCOW(ast.children, function(node) {
+	            return walk(node, func, depthFirst);
+	        });
+
+	        if(children !== ast.children) {
+	            ast = new nodes[ast.typename](ast.lineno, ast.colno, children);
+	        }
+	    }
+	    else if(ast instanceof nodes.CallExtension) {
+	        var args = walk(ast.args, func, depthFirst);
+
+	        var contentArgs = mapCOW(ast.contentArgs, function(node) {
+	            return walk(node, func, depthFirst);
+	        });
+
+	        if(args !== ast.args || contentArgs !== ast.contentArgs) {
+	            ast = new nodes[ast.typename](ast.extName,
+	                                          ast.prop,
+	                                          args,
+	                                          contentArgs);
+	        }
+	    }
+	    else {
+	        var props = ast.fields.map(function(field) {
+	            return ast[field];
+	        });
+
+	        var propsT = mapCOW(props, function(prop) {
+	            return walk(prop, func, depthFirst);
+	        });
+
+	        if(propsT !== props) {
+	            ast = new nodes[ast.typename](ast.lineno, ast.colno);
+
+	            propsT.forEach(function(prop, i) {
+	                ast[ast.fields[i]] = prop;
+	            });
+	        }
+	    }
+
+	    return depthFirst ? (func(ast) || ast) : ast;
+	}
+
+	function depthWalk(ast, func) {
+	    return walk(ast, func, true);
+	}
+
+	function _liftFilters(node, asyncFilters, prop) {
+	    var children = [];
+
+	    var walked = depthWalk(prop ? node[prop] : node, function(node) {
+	        if(node instanceof nodes.Block) {
+	            return node;
+	        }
+	        else if((node instanceof nodes.Filter &&
+	                 lib.indexOf(asyncFilters, node.name.value) !== -1) ||
+	                node instanceof nodes.CallExtensionAsync) {
+	            var symbol = new nodes.Symbol(node.lineno,
+	                                          node.colno,
+	                                          gensym());
+
+	            children.push(new nodes.FilterAsync(node.lineno,
+	                                                node.colno,
+	                                                node.name,
+	                                                node.args,
+	                                                symbol));
+	            return symbol;
+	        }
+	    });
+
+	    if(prop) {
+	        node[prop] = walked;
+	    }
+	    else {
+	        node = walked;
+	    }
+
+	    if(children.length) {
+	        children.push(node);
+
+	        return new nodes.NodeList(
+	            node.lineno,
+	            node.colno,
+	            children
+	        );
+	    }
+	    else {
+	        return node;
+	    }
+	}
+
+	function liftFilters(ast, asyncFilters) {
+	    return depthWalk(ast, function(node) {
+	        if(node instanceof nodes.Output) {
+	            return _liftFilters(node, asyncFilters);
+	        }
+	        else if(node instanceof nodes.Set) {
+	            return _liftFilters(node, asyncFilters, 'value');
+	        }
+	        else if(node instanceof nodes.For) {
+	            return _liftFilters(node, asyncFilters, 'arr');
+	        }
+	        else if(node instanceof nodes.If) {
+	            return _liftFilters(node, asyncFilters, 'cond');
+	        }
+	        else if(node instanceof nodes.CallExtension) {
+	            return _liftFilters(node, asyncFilters, 'args');
+	        }
+	    });
+	}
+
+	function liftSuper(ast) {
+	    return walk(ast, function(blockNode) {
+	        if(!(blockNode instanceof nodes.Block)) {
+	            return;
+	        }
+
+	        var hasSuper = false;
+	        var symbol = gensym();
+
+	        blockNode.body = walk(blockNode.body, function(node) {
+	            if(node instanceof nodes.FunCall &&
+	               node.name.value === 'super') {
+	                hasSuper = true;
+	                return new nodes.Symbol(node.lineno, node.colno, symbol);
+	            }
+	        });
+
+	        if(hasSuper) {
+	            blockNode.body.children.unshift(new nodes.Super(
+	                0, 0, blockNode.name, new nodes.Symbol(0, 0, symbol)
+	            ));
+	        }
+	    });
+	}
+
+	function convertStatements(ast) {
+	    return depthWalk(ast, function(node) {
+	        if(!(node instanceof nodes.If) &&
+	           !(node instanceof nodes.For)) {
+	            return;
+	        }
+
+	        var async = false;
+	        walk(node, function(node) {
+	            if(node instanceof nodes.FilterAsync ||
+	               node instanceof nodes.IfAsync ||
+	               node instanceof nodes.AsyncEach ||
+	               node instanceof nodes.AsyncAll ||
+	               node instanceof nodes.CallExtensionAsync ||
+	               node instanceof nodes.Include) {
+	                async = true;
+	                // Stop iterating by returning the node
+	                return node;
+	            }
+	        });
+
+	        if(async) {
+		        if(node instanceof nodes.If) {
+	                return new nodes.IfAsync(
+	                    node.lineno,
+	                    node.colno,
+	                    node.cond,
+	                    node.body,
+	                    node.else_
+	                );
+	            }
+	            else if(node instanceof nodes.For) {
+	                return new nodes.AsyncEach(
+	                    node.lineno,
+	                    node.colno,
+	                    node.arr,
+	                    node.name,
+	                    node.body,
+	                    node.else_
+	                );
+	            }
+	        }
+	    });
+	}
+
+	function cps(ast, asyncFilters) {
+	    return convertStatements(liftSuper(liftFilters(ast, asyncFilters)));
+	}
+
+	function transform(ast, asyncFilters) {
+	    return cps(ast, asyncFilters || []);
+	}
+
+	// var parser = require('./parser');
+	// var src = 'hello {% foo %}{% endfoo %} end';
+	// var ast = transform(parser.parse(src, [new FooExtension()]), ['bar']);
+	// nodes.printNodes(ast);
+
+	module.exports = {
+	    transform: transform
+	};
+
+
+/***/ },
+/* 9 */
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict';
+
+	var lib = __webpack_require__(4);
+	var Obj = __webpack_require__(5);
+	var NotFound = {};
 
 	// Frames keep track of scoping both at compile-time and run-time so
 	// we know how to access variables. Block tags can introduce special
@@ -4030,18 +3978,23 @@ var nunjucks =
 	    },
 
 	    lookup: function(name) {
+	        var val = this.strictLookup(name);
+	        return (val === NotFound) ? undefined : val;
+	    },
+
+	    strictLookup: function(name) {
 	        var p = this.parent;
-	        var val = this.variables[name];
-	        if(val !== undefined && val !== null) {
-	            return val;
+	        if(this.variables.hasOwnProperty(name)) {
+	            return this.variables[name];
+	        } else if (p) {
+	            return p.strictLookup(name);
 	        }
-	        return p && p.lookup(name);
+	        return NotFound;
 	    },
 
 	    resolve: function(name) {
 	        var p = this.parent;
-	        var val = this.variables[name];
-	        if(val !== undefined && val !== null) {
+	        if (this.variables.hasOwnProperty(name)) {
 	            return this;
 	        }
 	        return p && p.resolve(name);
@@ -4228,10 +4181,8 @@ var nunjucks =
 	}
 
 	function contextOrFrameLookup(context, frame, name) {
-	    var val = frame.lookup(name);
-	    return (val !== undefined && val !== null) ?
-	        val :
-	        context.lookup(name);
+	    var val = frame.strictLookup(name);
+	    return (val !== NotFound) ? val : context.lookup(name);
 	}
 
 	function handleError(error, lineno, colno) {
@@ -4341,235 +4292,556 @@ var nunjucks =
 
 
 /***/ },
-/* 9 */
-/***/ function(module, exports, __webpack_require__) {
-
-	function installCompat() {
-	  'use strict';
-
-	  // This must be called like `nunjucks.installCompat` so that `this`
-	  // references the nunjucks instance
-	  var runtime = this.runtime; // jshint ignore:line
-	  var lib = this.lib; // jshint ignore:line
-
-	  var orig_contextOrFrameLookup = runtime.contextOrFrameLookup;
-	  runtime.contextOrFrameLookup = function(context, frame, key) {
-	    var val = orig_contextOrFrameLookup.apply(this, arguments);
-	    if (val === undefined) {
-	      switch (key) {
-	      case 'True':
-	        return true;
-	      case 'False':
-	        return false;
-	      case 'None':
-	        return null;
-	      }
-	    }
-
-	    return val;
-	  };
-
-	  var orig_memberLookup = runtime.memberLookup;
-	  var ARRAY_MEMBERS = {
-	    pop: function(index) {
-	      if (index === undefined) {
-	        return this.pop();
-	      }
-	      if (index >= this.length || index < 0) {
-	        throw new Error('KeyError');
-	      }
-	      return this.splice(index, 1);
-	    },
-	    remove: function(element) {
-	      for (var i = 0; i < this.length; i++) {
-	        if (this[i] === element) {
-	          return this.splice(i, 1);
-	        }
-	      }
-	      throw new Error('ValueError');
-	    },
-	    count: function(element) {
-	      var count = 0;
-	      for (var i = 0; i < this.length; i++) {
-	        if (this[i] === element) {
-	          count++;
-	        }
-	      }
-	      return count;
-	    },
-	    index: function(element) {
-	      var i;
-	      if ((i = this.indexOf(element)) === -1) {
-	        throw new Error('ValueError');
-	      }
-	      return i;
-	    },
-	    find: function(element) {
-	      return this.indexOf(element);
-	    },
-	    insert: function(index, elem) {
-	      return this.splice(index, 0, elem);
-	    }
-	  };
-	  var OBJECT_MEMBERS = {
-	    items: function() {
-	      var ret = [];
-	      for(var k in this) {
-	        ret.push([k, this[k]]);
-	      }
-	      return ret;
-	    },
-	    values: function() {
-	      var ret = [];
-	      for(var k in this) {
-	        ret.push(this[k]);
-	      }
-	      return ret;
-	    },
-	    keys: function() {
-	      var ret = [];
-	      for(var k in this) {
-	        ret.push(k);
-	      }
-	      return ret;
-	    },
-	    get: function(key, def) {
-	      var output = this[key];
-	      if (output === undefined) {
-	        output = def;
-	      }
-	      return output;
-	    },
-	    has_key: function(key) {
-	      return this.hasOwnProperty(key);
-	    },
-	    pop: function(key, def) {
-	      var output = this[key];
-	      if (output === undefined && def !== undefined) {
-	        output = def;
-	      } else if (output === undefined) {
-	        throw new Error('KeyError');
-	      } else {
-	        delete this[key];
-	      }
-	      return output;
-	    },
-	    popitem: function() {
-	      for (var k in this) {
-	        // Return the first object pair.
-	        var val = this[k];
-	        delete this[k];
-	        return [k, val];
-	      }
-	      throw new Error('KeyError');
-	    },
-	    setdefault: function(key, def) {
-	      if (key in this) {
-	        return this[key];
-	      }
-	      if (def === undefined) {
-	        def = null;
-	      }
-	      return this[key] = def;
-	    },
-	    update: function(kwargs) {
-	      for (var k in kwargs) {
-	        this[k] = kwargs[k];
-	      }
-	      return null;  // Always returns None
-	    }
-	  };
-	  OBJECT_MEMBERS.iteritems = OBJECT_MEMBERS.items;
-	  OBJECT_MEMBERS.itervalues = OBJECT_MEMBERS.values;
-	  OBJECT_MEMBERS.iterkeys = OBJECT_MEMBERS.keys;
-	  runtime.memberLookup = function(obj, val, autoescape) { // jshint ignore:line
-	    obj = obj || {};
-
-	    // If the object is an object, return any of the methods that Python would
-	    // otherwise provide.
-	    if (lib.isArray(obj) && ARRAY_MEMBERS.hasOwnProperty(val)) {
-	      return function() {return ARRAY_MEMBERS[val].apply(obj, arguments);};
-	    }
-
-	    if (lib.isObject(obj) && OBJECT_MEMBERS.hasOwnProperty(val)) {
-	      return function() {return OBJECT_MEMBERS[val].apply(obj, arguments);};
-	    }
-
-	    return orig_memberLookup.apply(this, arguments);
-	  };
-	}
-
-	module.exports = installCompat;
-
-
-/***/ },
 /* 10 */
 /***/ function(module, exports, __webpack_require__) {
 
 	'use strict';
 
-	// A simple class system, more documentation to come
+	var path = __webpack_require__(3);
+	var asap = __webpack_require__(12);
+	var lib = __webpack_require__(4);
+	var Obj = __webpack_require__(5);
+	var compiler = __webpack_require__(1);
+	var builtin_filters = __webpack_require__(11);
+	var builtin_loaders = __webpack_require__(14);
+	var runtime = __webpack_require__(9);
+	var globals = __webpack_require__(17);
+	var Frame = runtime.Frame;
+	var Template;
 
-	function extend(cls, name, props) {
-	    // This does that same thing as Object.create, but with support for IE8
-	    var F = function() {};
-	    F.prototype = cls.prototype;
-	    var prototype = new F();
+	// Unconditionally load in this loader, even if no other ones are
+	// included (possible in the slim browser build)
+	builtin_loaders.PrecompiledLoader = __webpack_require__(16);
 
-	    // jshint undef: false
-	    var fnTest = /xyz/.test(function(){ xyz; }) ? /\bparent\b/ : /.*/;
-	    props = props || {};
-
-	    for(var k in props) {
-	        var src = props[k];
-	        var parent = prototype[k];
-
-	        if(typeof parent === 'function' &&
-	           typeof src === 'function' &&
-	           fnTest.test(src)) {
-	            /*jshint -W083 */
-	            prototype[k] = (function (src, parent) {
-	                return function() {
-	                    // Save the current parent method
-	                    var tmp = this.parent;
-
-	                    // Set parent to the previous method, call, and restore
-	                    this.parent = parent;
-	                    var res = src.apply(this, arguments);
-	                    this.parent = tmp;
-
-	                    return res;
-	                };
-	            })(src, parent);
-	        }
-	        else {
-	            prototype[k] = src;
-	        }
-	    }
-
-	    prototype.typename = name;
-
-	    var new_cls = function() {
-	        if(prototype.init) {
-	            prototype.init.apply(this, arguments);
-	        }
-	    };
-
-	    new_cls.prototype = prototype;
-	    new_cls.prototype.constructor = new_cls;
-
-	    new_cls.extend = function(name, props) {
-	        if(typeof name === 'object') {
-	            props = name;
-	            name = 'anonymous';
-	        }
-	        return extend(new_cls, name, props);
-	    };
-
-	    return new_cls;
+	// If the user is using the async API, *always* call it
+	// asynchronously even if the template was synchronous.
+	function callbackAsap(cb, err, res) {
+	    asap(function() { cb(err, res); });
 	}
 
-	module.exports = extend(Object, 'Object', {});
+	var Environment = Obj.extend({
+	    init: function(loaders, opts) {
+	        // The dev flag determines the trace that'll be shown on errors.
+	        // If set to true, returns the full trace from the error point,
+	        // otherwise will return trace starting from Template.render
+	        // (the full trace from within nunjucks may confuse developers using
+	        //  the library)
+	        // defaults to false
+	        opts = this.opts = opts || {};
+	        this.opts.dev = !!opts.dev;
+
+	        // The autoescape flag sets global autoescaping. If true,
+	        // every string variable will be escaped by default.
+	        // If false, strings can be manually escaped using the `escape` filter.
+	        // defaults to true
+	        this.opts.autoescape = opts.autoescape != null ? opts.autoescape : true;
+
+	        // If true, this will make the system throw errors if trying
+	        // to output a null or undefined value
+	        this.opts.throwOnUndefined = !!opts.throwOnUndefined;
+	        this.opts.trimBlocks = !!opts.trimBlocks;
+	        this.opts.lstripBlocks = !!opts.lstripBlocks;
+
+	        this.loaders = [];
+
+	        if(!loaders) {
+	            // The filesystem loader is only available server-side
+	            if(builtin_loaders.FileSystemLoader) {
+	                this.loaders = [new builtin_loaders.FileSystemLoader('views')];
+	            }
+	            else if(builtin_loaders.WebLoader) {
+	                this.loaders = [new builtin_loaders.WebLoader('/views')];
+	            }
+	        }
+	        else {
+	            this.loaders = lib.isArray(loaders) ? loaders : [loaders];
+	        }
+
+	        // It's easy to use precompiled templates: just include them
+	        // before you configure nunjucks and this will automatically
+	        // pick it up and use it
+	        if((true) && window.nunjucksPrecompiled) {
+	            this.loaders.unshift(
+	                new builtin_loaders.PrecompiledLoader(window.nunjucksPrecompiled)
+	            );
+	        }
+
+	        this.initCache();
+	        this.filters = {};
+	        this.asyncFilters = [];
+	        this.extensions = {};
+	        this.extensionsList = [];
+
+	        for(var name in builtin_filters) {
+	            this.addFilter(name, builtin_filters[name]);
+	        }
+	    },
+
+	    initCache: function() {
+	        // Caching and cache busting
+	        lib.each(this.loaders, function(loader) {
+	            loader.cache = {};
+
+	            if(typeof loader.on === 'function') {
+	                loader.on('update', function(template) {
+	                    loader.cache[template] = null;
+	                });
+	            }
+	        });
+	    },
+
+	    addExtension: function(name, extension) {
+	        extension._name = name;
+	        this.extensions[name] = extension;
+	        this.extensionsList.push(extension);
+	    },
+
+	    getExtension: function(name) {
+	        return this.extensions[name];
+	    },
+
+	    addGlobal: function(name, value) {
+	        globals[name] = value;
+	    },
+
+	    getGlobal: function(name) {
+	        if(!globals[name]) {
+	            throw new Error('global not found: ' + name);
+	        }
+	        return globals[name];
+	    },
+
+	    addFilter: function(name, func, async) {
+	        var wrapped = func;
+
+	        if(async) {
+	            this.asyncFilters.push(name);
+	        }
+	        this.filters[name] = wrapped;
+	    },
+
+	    getFilter: function(name) {
+	        if(!this.filters[name]) {
+	            throw new Error('filter not found: ' + name);
+	        }
+	        return this.filters[name];
+	    },
+
+	    resolveTemplate: function(loader, parentName, filename) {
+	        var isRelative = (loader.isRelative && parentName)? loader.isRelative(filename) : false;
+	        return (isRelative && loader.resolve)? loader.resolve(parentName, filename) : filename;
+	    },
+
+	    getTemplate: function(name, eagerCompile, parentName, cb) {
+	        var that = this;
+	        var tmpl = null;
+	        if(name && name.raw) {
+	            // this fixes autoescape for templates referenced in symbols
+	            name = name.raw;
+	        }
+
+	        if(lib.isFunction(parentName)) {
+	            cb = parentName;
+	            parentName = null;
+	            eagerCompile = eagerCompile || false;
+	        }
+
+	        if(lib.isFunction(eagerCompile)) {
+	            cb = eagerCompile;
+	            eagerCompile = false;
+	        }
+
+	        if(typeof name !== 'string') {
+	            throw new Error('template names must be a string: ' + name);
+	        }
+
+	        for (var i = 0; i < this.loaders.length; i++) {
+	            var _name = this.resolveTemplate(this.loaders[i], parentName, name);
+	            tmpl = this.loaders[i].cache[_name];
+	            if (tmpl) break;
+	        }
+
+	        if(tmpl) {
+	            if(eagerCompile) {
+	                tmpl.compile();
+	            }
+
+	            if(cb) {
+	                cb(null, tmpl);
+	            }
+	            else {
+	                return tmpl;
+	            }
+	        } else {
+	            var syncResult;
+	            var _this = this;
+
+	            var createTemplate = function(info) {
+	                if(!info) {
+	                    var err = new Error('template not found: ' + name);
+	                    if(cb) {
+	                        cb(err);
+	                    }
+	                    else {
+	                        throw err;
+	                    }
+	                }
+	                else {
+	                    var tmpl = new Template(info.src, _this,
+	                                            info.path, eagerCompile);
+
+	                    if(!info.noCache) {
+	                        info.loader.cache[name] = tmpl;
+	                    }
+
+	                    if(cb) {
+	                        cb(null, tmpl);
+	                    }
+	                    else {
+	                        syncResult = tmpl;
+	                    }
+	                }
+	            };
+
+	            lib.asyncIter(this.loaders, function(loader, i, next, done) {
+	                function handle(src) {
+	                    if(src) {
+	                        src.loader = loader;
+	                        done(src);
+	                    }
+	                    else {
+	                        next();
+	                    }
+	                }
+
+	                // Resolve name relative to parentName
+	                name = that.resolveTemplate(loader, parentName, name);
+
+	                if(loader.async) {
+	                    loader.getSource(name, function(err, src) {
+	                        if(err) { throw err; }
+	                        handle(src);
+	                    });
+	                }
+	                else {
+	                    handle(loader.getSource(name));
+	                }
+	            }, createTemplate);
+
+	            return syncResult;
+	        }
+	    },
+
+	    express: function(app) {
+	        var env = this;
+
+	        function NunjucksView(name, opts) {
+	            this.name          = name;
+	            this.path          = name;
+	            this.defaultEngine = opts.defaultEngine;
+	            this.ext           = path.extname(name);
+	            if (!this.ext && !this.defaultEngine) throw new Error('No default engine was specified and no extension was provided.');
+	            if (!this.ext) this.name += (this.ext = ('.' !== this.defaultEngine[0] ? '.' : '') + this.defaultEngine);
+	        }
+
+	        NunjucksView.prototype.render = function(opts, cb) {
+	          env.render(this.name, opts, cb);
+	        };
+
+	        app.set('view', NunjucksView);
+	    },
+
+	    render: function(name, ctx, cb) {
+	        if(lib.isFunction(ctx)) {
+	            cb = ctx;
+	            ctx = null;
+	        }
+
+	        // We support a synchronous API to make it easier to migrate
+	        // existing code to async. This works because if you don't do
+	        // anything async work, the whole thing is actually run
+	        // synchronously.
+	        var syncResult = null;
+
+	        this.getTemplate(name, function(err, tmpl) {
+	            if(err && cb) {
+	                callbackAsap(cb, err);
+	            }
+	            else if(err) {
+	                throw err;
+	            }
+	            else {
+	                syncResult = tmpl.render(ctx, cb);
+	            }
+	        });
+
+	        return syncResult;
+	    },
+
+	    renderString: function(src, ctx, opts, cb) {
+	        if(lib.isFunction(opts)) {
+	            cb = opts;
+	            opts = {};
+	        }
+	        opts = opts || {};
+
+	        var tmpl = new Template(src, this, opts.path);
+	        return tmpl.render(ctx, cb);
+	    }
+	});
+
+	var Context = Obj.extend({
+	    init: function(ctx, blocks) {
+	        // Make a duplicate of ctx
+	        this.ctx = {};
+	        for(var k in ctx) {
+	            if(ctx.hasOwnProperty(k)) {
+	                this.ctx[k] = ctx[k];
+	            }
+	        }
+
+	        this.blocks = {};
+	        this.exported = [];
+
+	        for(var name in blocks) {
+	            this.addBlock(name, blocks[name]);
+	        }
+	    },
+
+	    lookup: function(name) {
+	        // This is one of the most called functions, so optimize for
+	        // the typical case where the name isn't in the globals
+	        if(name in globals && !(name in this.ctx)) {
+	            return globals[name];
+	        }
+	        else {
+	            return this.ctx[name];
+	        }
+	    },
+
+	    setVariable: function(name, val) {
+	        this.ctx[name] = val;
+	    },
+
+	    getVariables: function() {
+	        return this.ctx;
+	    },
+
+	    addBlock: function(name, block) {
+	        this.blocks[name] = this.blocks[name] || [];
+	        this.blocks[name].push(block);
+	    },
+
+	    getBlock: function(name) {
+	        if(!this.blocks[name]) {
+	            throw new Error('unknown block "' + name + '"');
+	        }
+
+	        return this.blocks[name][0];
+	    },
+
+	    getSuper: function(env, name, block, frame, runtime, cb) {
+	        var idx = lib.indexOf(this.blocks[name] || [], block);
+	        var blk = this.blocks[name][idx + 1];
+	        var context = this;
+
+	        if(idx === -1 || !blk) {
+	            throw new Error('no super block available for "' + name + '"');
+	        }
+
+	        blk(env, context, frame, runtime, cb);
+	    },
+
+	    addExport: function(name) {
+	        this.exported.push(name);
+	    },
+
+	    getExported: function() {
+	        var exported = {};
+	        for(var i=0; i<this.exported.length; i++) {
+	            var name = this.exported[i];
+	            exported[name] = this.ctx[name];
+	        }
+	        return exported;
+	    }
+	});
+
+	Template = Obj.extend({
+	    init: function (src, env, path, eagerCompile) {
+	        this.env = env || new Environment();
+
+	        if(lib.isObject(src)) {
+	            switch(src.type) {
+	            case 'code': this.tmplProps = src.obj; break;
+	            case 'string': this.tmplStr = src.obj; break;
+	            }
+	        }
+	        else if(lib.isString(src)) {
+	            this.tmplStr = src;
+	        }
+	        else {
+	            throw new Error('src must be a string or an object describing ' +
+	                            'the source');
+	        }
+
+	        this.path = path;
+
+	        if(eagerCompile) {
+	            var _this = this;
+	            try {
+	                _this._compile();
+	            }
+	            catch(err) {
+	                throw lib.prettifyError(this.path, this.env.dev, err);
+	            }
+	        }
+	        else {
+	            this.compiled = false;
+	        }
+	    },
+
+	    render: function(ctx, parentFrame, cb) {
+	        if (typeof ctx === 'function') {
+	            cb = ctx;
+	            ctx = {};
+	        }
+	        else if (typeof parentFrame === 'function') {
+	            cb = parentFrame;
+	            parentFrame = null;
+	        }
+
+	        var forceAsync = true;
+	        if(parentFrame) {
+	            // If there is a frame, we are being called from internal
+	            // code of another template, and the internal system
+	            // depends on the sync/async nature of the parent template
+	            // to be inherited, so force an async callback
+	            forceAsync = false;
+	        }
+
+	        var _this = this;
+	        // Catch compile errors for async rendering
+	        try {
+	            _this.compile();
+	        } catch (_err) {
+	            var err = lib.prettifyError(this.path, this.env.dev, _err);
+	            if (cb) return callbackAsap(cb, err);
+	            else throw err;
+	        }
+
+	        var context = new Context(ctx || {}, _this.blocks);
+	        var frame = parentFrame ? parentFrame.push() : new Frame();
+	        frame.topLevel = true;
+	        var syncResult = null;
+
+	        _this.rootRenderFunc(
+	            _this.env,
+	            context,
+	            frame || new Frame(),
+	            runtime,
+	            function(err, res) {
+	                if(err) {
+	                    err = lib.prettifyError(_this.path, _this.env.dev, err);
+	                }
+
+	                if(cb) {
+	                    if(forceAsync) {
+	                        callbackAsap(cb, err, res);
+	                    }
+	                    else {
+	                        cb(err, res);
+	                    }
+	                }
+	                else {
+	                    if(err) { throw err; }
+	                    syncResult = res;
+	                }
+	            }
+	        );
+
+	        return syncResult;
+	    },
+
+
+	    getExported: function(ctx, parentFrame, cb) {
+	        if (typeof ctx === 'function') {
+	            cb = ctx;
+	            ctx = {};
+	        }
+
+	        if (typeof parentFrame === 'function') {
+	            cb = parentFrame;
+	            parentFrame = null;
+	        }
+
+	        // Catch compile errors for async rendering
+	        try {
+	            this.compile();
+	        } catch (e) {
+	            if (cb) return cb(e);
+	            else throw e;
+	        }
+
+	        var frame = parentFrame ? parentFrame.push() : new Frame();
+	        frame.topLevel = true;
+
+	        // Run the rootRenderFunc to populate the context with exported vars
+	        var context = new Context(ctx || {}, this.blocks);
+	        this.rootRenderFunc(this.env,
+	                            context,
+	                            frame,
+	                            runtime,
+	                            function() {
+	                                cb(null, context.getExported());
+	                            });
+	    },
+
+	    compile: function() {
+	        if(!this.compiled) {
+	            this._compile();
+	        }
+	    },
+
+	    _compile: function() {
+	        var props;
+
+	        if(this.tmplProps) {
+	            props = this.tmplProps;
+	        }
+	        else {
+	            var source = compiler.compile(this.tmplStr,
+	                                          this.env.asyncFilters,
+	                                          this.env.extensionsList,
+	                                          this.path,
+	                                          this.env.opts);
+
+	            /* jslint evil: true */
+	            var func = new Function(source);
+	            props = func();
+	        }
+
+	        this.blocks = this._getBlocks(props);
+	        this.rootRenderFunc = props.root;
+	        this.compiled = true;
+	    },
+
+	    _getBlocks: function(props) {
+	        var blocks = {};
+
+	        for(var k in props) {
+	            if(k.slice(0, 2) === 'b_') {
+	                blocks[k.slice(2)] = props[k];
+	            }
+	        }
+
+	        return blocks;
+	    }
+	});
+
+	module.exports = {
+	    Environment: Environment,
+	    Template: Template
+	};
 
 
 /***/ },
@@ -4578,8 +4850,8 @@ var nunjucks =
 
 	'use strict';
 
-	var lib = __webpack_require__(1);
-	var r = __webpack_require__(8);
+	var lib = __webpack_require__(4);
+	var r = __webpack_require__(9);
 
 	function normalize(value, defaultValue) {
 	    if(value === null || value === undefined || value === false) {
@@ -5126,669 +5398,10 @@ var nunjucks =
 /* 12 */
 /***/ function(module, exports, __webpack_require__) {
 
-	'use strict';
-
-	function cycler(items) {
-	    var index = -1;
-
-	    return {
-	        current: null,
-	        reset: function() {
-	            index = -1;
-	            this.current = null;
-	        },
-
-	        next: function() {
-	            index++;
-	            if(index >= items.length) {
-	                index = 0;
-	            }
-
-	            this.current = items[index];
-	            return this.current;
-	        },
-	    };
-
-	}
-
-	function joiner(sep) {
-	    sep = sep || ',';
-	    var first = true;
-
-	    return function() {
-	        var val = first ? '' : sep;
-	        first = false;
-	        return val;
-	    };
-	}
-
-	var globals = {
-	    range: function(start, stop, step) {
-	        if(!stop) {
-	            stop = start;
-	            start = 0;
-	            step = 1;
-	        }
-	        else if(!step) {
-	            step = 1;
-	        }
-
-	        var arr = [];
-	        for(var i=start; i<stop; i+=step) {
-	            arr.push(i);
-	        }
-	        return arr;
-	    },
-
-	    // lipsum: function(n, html, min, max) {
-	    // },
-
-	    cycler: function() {
-	        return cycler(Array.prototype.slice.call(arguments));
-	    },
-
-	    joiner: function(sep) {
-	        return joiner(sep);
-	    }
-	};
-
-	module.exports = globals;
-
-
-/***/ },
-/* 13 */
-/***/ function(module, exports, __webpack_require__) {
-
-	'use strict';
-
-	var Loader = __webpack_require__(3);
-
-	var PrecompiledLoader = Loader.extend({
-	    init: function(compiledTemplates) {
-	        this.precompiled = compiledTemplates || {};
-	    },
-
-	    getSource: function(name) {
-	        if (this.precompiled[name]) {
-	            return {
-	                src: { type: 'code',
-	                       obj: this.precompiled[name] },
-	                path: name
-	            };
-	        }
-	        return null;
-	    }
-	});
-
-	module.exports = PrecompiledLoader;
-
-
-/***/ },
-/* 14 */
-/***/ function(module, exports, __webpack_require__) {
-
-	
-
-/***/ },
-/* 15 */
-/***/ function(module, exports, __webpack_require__) {
-
-	'use strict';
-
-	var nodes = __webpack_require__(16);
-	var lib = __webpack_require__(1);
-
-	var sym = 0;
-	function gensym() {
-	    return 'hole_' + sym++;
-	}
-
-	// copy-on-write version of map
-	function mapCOW(arr, func) {
-	    var res = null;
-
-	    for(var i=0; i<arr.length; i++) {
-	        var item = func(arr[i]);
-
-	        if(item !== arr[i]) {
-	            if(!res) {
-	                res = arr.slice();
-	            }
-
-	            res[i] = item;
-	        }
-	    }
-
-	    return res || arr;
-	}
-
-	function walk(ast, func, depthFirst) {
-	    if(!(ast instanceof nodes.Node)) {
-	        return ast;
-	    }
-
-	    if(!depthFirst) {
-	        var astT = func(ast);
-
-	        if(astT && astT !== ast) {
-	            return astT;
-	        }
-	    }
-
-	    if(ast instanceof nodes.NodeList) {
-	        var children = mapCOW(ast.children, function(node) {
-	            return walk(node, func, depthFirst);
-	        });
-
-	        if(children !== ast.children) {
-	            ast = new nodes[ast.typename](ast.lineno, ast.colno, children);
-	        }
-	    }
-	    else if(ast instanceof nodes.CallExtension) {
-	        var args = walk(ast.args, func, depthFirst);
-
-	        var contentArgs = mapCOW(ast.contentArgs, function(node) {
-	            return walk(node, func, depthFirst);
-	        });
-
-	        if(args !== ast.args || contentArgs !== ast.contentArgs) {
-	            ast = new nodes[ast.typename](ast.extName,
-	                                          ast.prop,
-	                                          args,
-	                                          contentArgs);
-	        }
-	    }
-	    else {
-	        var props = ast.fields.map(function(field) {
-	            return ast[field];
-	        });
-
-	        var propsT = mapCOW(props, function(prop) {
-	            return walk(prop, func, depthFirst);
-	        });
-
-	        if(propsT !== props) {
-	            ast = new nodes[ast.typename](ast.lineno, ast.colno);
-
-	            propsT.forEach(function(prop, i) {
-	                ast[ast.fields[i]] = prop;
-	            });
-	        }
-	    }
-
-	    return depthFirst ? (func(ast) || ast) : ast;
-	}
-
-	function depthWalk(ast, func) {
-	    return walk(ast, func, true);
-	}
-
-	function _liftFilters(node, asyncFilters, prop) {
-	    var children = [];
-
-	    var walked = depthWalk(prop ? node[prop] : node, function(node) {
-	        if(node instanceof nodes.Block) {
-	            return node;
-	        }
-	        else if((node instanceof nodes.Filter &&
-	                 lib.indexOf(asyncFilters, node.name.value) !== -1) ||
-	                node instanceof nodes.CallExtensionAsync) {
-	            var symbol = new nodes.Symbol(node.lineno,
-	                                          node.colno,
-	                                          gensym());
-
-	            children.push(new nodes.FilterAsync(node.lineno,
-	                                                node.colno,
-	                                                node.name,
-	                                                node.args,
-	                                                symbol));
-	            return symbol;
-	        }
-	    });
-
-	    if(prop) {
-	        node[prop] = walked;
-	    }
-	    else {
-	        node = walked;
-	    }
-
-	    if(children.length) {
-	        children.push(node);
-
-	        return new nodes.NodeList(
-	            node.lineno,
-	            node.colno,
-	            children
-	        );
-	    }
-	    else {
-	        return node;
-	    }
-	}
-
-	function liftFilters(ast, asyncFilters) {
-	    return depthWalk(ast, function(node) {
-	        if(node instanceof nodes.Output) {
-	            return _liftFilters(node, asyncFilters);
-	        }
-	        else if(node instanceof nodes.Set) {
-	            return _liftFilters(node, asyncFilters, 'value');
-	        }
-	        else if(node instanceof nodes.For) {
-	            return _liftFilters(node, asyncFilters, 'arr');
-	        }
-	        else if(node instanceof nodes.If) {
-	            return _liftFilters(node, asyncFilters, 'cond');
-	        }
-	        else if(node instanceof nodes.CallExtension) {
-	            return _liftFilters(node, asyncFilters, 'args');
-	        }
-	    });
-	}
-
-	function liftSuper(ast) {
-	    return walk(ast, function(blockNode) {
-	        if(!(blockNode instanceof nodes.Block)) {
-	            return;
-	        }
-
-	        var hasSuper = false;
-	        var symbol = gensym();
-
-	        blockNode.body = walk(blockNode.body, function(node) {
-	            if(node instanceof nodes.FunCall &&
-	               node.name.value === 'super') {
-	                hasSuper = true;
-	                return new nodes.Symbol(node.lineno, node.colno, symbol);
-	            }
-	        });
-
-	        if(hasSuper) {
-	            blockNode.body.children.unshift(new nodes.Super(
-	                0, 0, blockNode.name, new nodes.Symbol(0, 0, symbol)
-	            ));
-	        }
-	    });
-	}
-
-	function convertStatements(ast) {
-	    return depthWalk(ast, function(node) {
-	        if(!(node instanceof nodes.If) &&
-	           !(node instanceof nodes.For)) {
-	            return;
-	        }
-
-	        var async = false;
-	        walk(node, function(node) {
-	            if(node instanceof nodes.FilterAsync ||
-	               node instanceof nodes.IfAsync ||
-	               node instanceof nodes.AsyncEach ||
-	               node instanceof nodes.AsyncAll ||
-	               node instanceof nodes.CallExtensionAsync ||
-	               node instanceof nodes.Include) {
-	                async = true;
-	                // Stop iterating by returning the node
-	                return node;
-	            }
-	        });
-
-	        if(async) {
-		        if(node instanceof nodes.If) {
-	                return new nodes.IfAsync(
-	                    node.lineno,
-	                    node.colno,
-	                    node.cond,
-	                    node.body,
-	                    node.else_
-	                );
-	            }
-	            else if(node instanceof nodes.For) {
-	                return new nodes.AsyncEach(
-	                    node.lineno,
-	                    node.colno,
-	                    node.arr,
-	                    node.name,
-	                    node.body,
-	                    node.else_
-	                );
-	            }
-	        }
-	    });
-	}
-
-	function cps(ast, asyncFilters) {
-	    return convertStatements(liftSuper(liftFilters(ast, asyncFilters)));
-	}
-
-	function transform(ast, asyncFilters) {
-	    return cps(ast, asyncFilters || []);
-	}
-
-	// var parser = require('./parser');
-	// var src = 'hello {% foo %}{% endfoo %} end';
-	// var ast = transform(parser.parse(src, [new FooExtension()]), ['bar']);
-	// nodes.printNodes(ast);
-
-	module.exports = {
-	    transform: transform
-	};
-
-
-/***/ },
-/* 16 */
-/***/ function(module, exports, __webpack_require__) {
-
-	/* WEBPACK VAR INJECTION */(function(process) {'use strict';
-
-	var lib = __webpack_require__(1);
-	// jshint -W079
-	var Object = __webpack_require__(10);
-
-	function traverseAndCheck(obj, type, results) {
-	    if(obj instanceof type) {
-	        results.push(obj);
-	    }
-
-	    if(obj instanceof Node) {
-	        obj.findAll(type, results);
-	    }
-	}
-
-	var Node = Object.extend('Node', {
-	    init: function(lineno, colno) {
-	        this.lineno = lineno;
-	        this.colno = colno;
-
-	        var fields = this.fields;
-	        for(var i = 0, l = fields.length; i < l; i++) {
-	            var field = fields[i];
-
-	            // The first two args are line/col numbers, so offset by 2
-	            var val = arguments[i + 2];
-
-	            // Fields should never be undefined, but null. It makes
-	            // testing easier to normalize values.
-	            if(val === undefined) {
-	                val = null;
-	            }
-
-	            this[field] = val;
-	        }
-	    },
-
-	    findAll: function(type, results) {
-	        results = results || [];
-
-	        var i, l;
-	        if(this instanceof NodeList) {
-	            var children = this.children;
-
-	            for(i = 0, l = children.length; i < l; i++) {
-	                traverseAndCheck(children[i], type, results);
-	            }
-	        }
-	        else {
-	            var fields = this.fields;
-
-	            for(i = 0, l = fields.length; i < l; i++) {
-	                traverseAndCheck(this[fields[i]], type, results);
-	            }
-	        }
-
-	        return results;
-	    },
-
-	    iterFields: function(func) {
-	        lib.each(this.fields, function(field) {
-	            func(this[field], field);
-	        }, this);
-	    }
-	});
-
-	// Abstract nodes
-	var Value = Node.extend('Value', { fields: ['value'] });
-
-	// Concrete nodes
-	var NodeList = Node.extend('NodeList', {
-	    fields: ['children'],
-
-	    init: function(lineno, colno, nodes) {
-	        this.parent(lineno, colno, nodes || []);
-	    },
-
-	    addChild: function(node) {
-	        this.children.push(node);
-	    }
-	});
-
-	var Root = NodeList.extend('Root');
-	var Literal = Value.extend('Literal');
-	var Symbol = Value.extend('Symbol');
-	var Group = NodeList.extend('Group');
-	var Array = NodeList.extend('Array');
-	var Pair = Node.extend('Pair', { fields: ['key', 'value'] });
-	var Dict = NodeList.extend('Dict');
-	var LookupVal = Node.extend('LookupVal', { fields: ['target', 'val'] });
-	var If = Node.extend('If', { fields: ['cond', 'body', 'else_'] });
-	var IfAsync = If.extend('IfAsync');
-	var InlineIf = Node.extend('InlineIf', { fields: ['cond', 'body', 'else_'] });
-	var For = Node.extend('For', { fields: ['arr', 'name', 'body', 'else_'] });
-	var AsyncEach = For.extend('AsyncEach');
-	var AsyncAll = For.extend('AsyncAll');
-	var Macro = Node.extend('Macro', { fields: ['name', 'args', 'body'] });
-	var Caller = Macro.extend('Caller');
-	var Import = Node.extend('Import', { fields: ['template', 'target', 'withContext'] });
-	var FromImport = Node.extend('FromImport', {
-	    fields: ['template', 'names', 'withContext'],
-
-	    init: function(lineno, colno, template, names, withContext) {
-	        this.parent(lineno, colno,
-	                    template,
-	                    names || new NodeList(), withContext);
-	    }
-	});
-	var FunCall = Node.extend('FunCall', { fields: ['name', 'args'] });
-	var Filter = FunCall.extend('Filter');
-	var FilterAsync = Filter.extend('FilterAsync', {
-	    fields: ['name', 'args', 'symbol']
-	});
-	var KeywordArgs = Dict.extend('KeywordArgs');
-	var Block = Node.extend('Block', { fields: ['name', 'body'] });
-	var Super = Node.extend('Super', { fields: ['blockName', 'symbol'] });
-	var TemplateRef = Node.extend('TemplateRef', { fields: ['template'] });
-	var Extends = TemplateRef.extend('Extends');
-	var Include = TemplateRef.extend('Include');
-	var Set = Node.extend('Set', { fields: ['targets', 'value'] });
-	var Output = NodeList.extend('Output');
-	var TemplateData = Literal.extend('TemplateData');
-	var UnaryOp = Node.extend('UnaryOp', { fields: ['target'] });
-	var BinOp = Node.extend('BinOp', { fields: ['left', 'right'] });
-	var In = BinOp.extend('In');
-	var Or = BinOp.extend('Or');
-	var And = BinOp.extend('And');
-	var Not = UnaryOp.extend('Not');
-	var Add = BinOp.extend('Add');
-	var Sub = BinOp.extend('Sub');
-	var Mul = BinOp.extend('Mul');
-	var Div = BinOp.extend('Div');
-	var FloorDiv = BinOp.extend('FloorDiv');
-	var Mod = BinOp.extend('Mod');
-	var Pow = BinOp.extend('Pow');
-	var Neg = UnaryOp.extend('Neg');
-	var Pos = UnaryOp.extend('Pos');
-	var Compare = Node.extend('Compare', { fields: ['expr', 'ops'] });
-	var CompareOperand = Node.extend('CompareOperand', {
-	    fields: ['expr', 'type']
-	});
-
-	var CallExtension = Node.extend('CallExtension', {
-	    fields: ['extName', 'prop', 'args', 'contentArgs'],
-
-	    init: function(ext, prop, args, contentArgs) {
-	        this.extName = ext._name || ext;
-	        this.prop = prop;
-	        this.args = args || new NodeList();
-	        this.contentArgs = contentArgs || [];
-	        this.autoescape = ext.autoescape;
-	    }
-	});
-
-	var CallExtensionAsync = CallExtension.extend('CallExtensionAsync');
-
-	// Print the AST in a nicely formatted tree format for debuggin
-	function printNodes(node, indent) {
-	    indent = indent || 0;
-
-	    // This is hacky, but this is just a debugging function anyway
-	    function print(str, indent, inline) {
-	        var lines = str.split('\n');
-
-	        for(var i=0; i<lines.length; i++) {
-	            if(lines[i]) {
-	                if((inline && i > 0) || !inline) {
-	                    for(var j=0; j<indent; j++) {
-	                        process.stdout.write(' ');
-	                    }
-	                }
-	            }
-
-	            if(i === lines.length-1) {
-	                process.stdout.write(lines[i]);
-	            }
-	            else {
-	                process.stdout.write(lines[i] + '\n');
-	            }
-	        }
-	    }
-
-	    print(node.typename + ': ', indent);
-
-	    if(node instanceof NodeList) {
-	        print('\n');
-	        lib.each(node.children, function(n) {
-	            printNodes(n, indent + 2);
-	        });
-	    }
-	    else if(node instanceof CallExtension) {
-	        print(node.extName + '.' + node.prop);
-	        print('\n');
-
-	        if(node.args) {
-	            printNodes(node.args, indent + 2);
-	        }
-
-	        if(node.contentArgs) {
-	            lib.each(node.contentArgs, function(n) {
-	                printNodes(n, indent + 2);
-	            });
-	        }
-	    }
-	    else {
-	        var nodes = null;
-	        var props = null;
-
-	        node.iterFields(function(val, field) {
-	            if(val instanceof Node) {
-	                nodes = nodes || {};
-	                nodes[field] = val;
-	            }
-	            else {
-	                props = props || {};
-	                props[field] = val;
-	            }
-	        });
-
-	        if(props) {
-	            print(JSON.stringify(props, null, 2) + '\n', null, true);
-	        }
-	        else {
-	            print('\n');
-	        }
-
-	        if(nodes) {
-	            for(var k in nodes) {
-	                printNodes(nodes[k], indent + 2);
-	            }
-	        }
-
-	    }
-	}
-
-	// var t = new NodeList(0, 0,
-	//                      [new Value(0, 0, 3),
-	//                       new Value(0, 0, 10),
-	//                       new Pair(0, 0,
-	//                                new Value(0, 0, 'key'),
-	//                                new Value(0, 0, 'value'))]);
-	// printNodes(t);
-
-	module.exports = {
-	    Node: Node,
-	    Root: Root,
-	    NodeList: NodeList,
-	    Value: Value,
-	    Literal: Literal,
-	    Symbol: Symbol,
-	    Group: Group,
-	    Array: Array,
-	    Pair: Pair,
-	    Dict: Dict,
-	    Output: Output,
-	    TemplateData: TemplateData,
-	    If: If,
-	    IfAsync: IfAsync,
-	    InlineIf: InlineIf,
-	    For: For,
-	    AsyncEach: AsyncEach,
-	    AsyncAll: AsyncAll,
-	    Macro: Macro,
-	    Caller: Caller,
-	    Import: Import,
-	    FromImport: FromImport,
-	    FunCall: FunCall,
-	    Filter: Filter,
-	    FilterAsync: FilterAsync,
-	    KeywordArgs: KeywordArgs,
-	    Block: Block,
-	    Super: Super,
-	    Extends: Extends,
-	    Include: Include,
-	    Set: Set,
-	    LookupVal: LookupVal,
-	    BinOp: BinOp,
-	    In: In,
-	    Or: Or,
-	    And: And,
-	    Not: Not,
-	    Add: Add,
-	    Sub: Sub,
-	    Mul: Mul,
-	    Div: Div,
-	    FloorDiv: FloorDiv,
-	    Mod: Mod,
-	    Pow: Pow,
-	    Neg: Neg,
-	    Pos: Pos,
-	    Compare: Compare,
-	    CompareOperand: CompareOperand,
-
-	    CallExtension: CallExtension,
-	    CallExtensionAsync: CallExtensionAsync,
-
-	    printNodes: printNodes
-	};
-
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(14)))
-
-/***/ },
-/* 17 */
-/***/ function(module, exports, __webpack_require__) {
-
 	"use strict";
 
 	// rawAsap provides everything we need except exception management.
-	var rawAsap = __webpack_require__(18);
+	var rawAsap = __webpack_require__(13);
 	// RawTasks are recycled to reduce GC churn.
 	var freeTasks = [];
 	// We queue errors to ensure they are thrown in right order (FIFO).
@@ -5854,8 +5467,8 @@ var nunjucks =
 
 
 /***/ },
-/* 18 */
-/***/ function(module, exports, __webpack_require__) {
+/* 13 */
+/***/ function(module, exports) {
 
 	/* WEBPACK VAR INJECTION */(function(global) {"use strict";
 
@@ -6079,6 +5692,404 @@ var nunjucks =
 	// https://github.com/tildeio/rsvp.js/blob/cddf7232546a9cf858524b75cde6f9edf72620a7/lib/rsvp/asap.js
 
 	/* WEBPACK VAR INJECTION */}.call(exports, (function() { return this; }())))
+
+/***/ },
+/* 14 */
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict';
+
+	var Loader = __webpack_require__(15);
+	var PrecompiledLoader = __webpack_require__(16);
+
+	var WebLoader = Loader.extend({
+	    init: function(baseURL, opts) {
+	        this.baseURL = baseURL || '';
+
+	        // By default, the cache is turned off because there's no way
+	        // to "watch" templates over HTTP, so they are re-downloaded
+	        // and compiled each time. (Remember, PRECOMPILE YOUR
+	        // TEMPLATES in production!)
+	        this.useCache = opts.useCache;
+
+	        // We default `async` to false so that the simple synchronous
+	        // API can be used when you aren't doing anything async in
+	        // your templates (which is most of the time). This performs a
+	        // sync ajax request, but that's ok because it should *only*
+	        // happen in development. PRECOMPILE YOUR TEMPLATES.
+	        this.async = opts.async;
+	    },
+
+	    resolve: function(from, to) { // jshint ignore:line
+	        throw new Error('relative templates not support in the browser yet');
+	    },
+
+	    getSource: function(name, cb) {
+	        var useCache = this.useCache;
+	        var result;
+	        this.fetch(this.baseURL + '/' + name, function(err, src) {
+	            if(err) {
+	                if(!cb) {
+	                    throw err;
+	                }
+	                cb(err);
+	            }
+	            else {
+	                result = { src: src,
+	                           path: name,
+	                           noCache: !useCache };
+	                if(cb) {
+	                    cb(null, result);
+	                }
+	            }
+	        });
+
+	        // if this WebLoader isn't running asynchronously, the
+	        // fetch above would actually run sync and we'll have a
+	        // result here
+	        return result;
+	    },
+
+	    fetch: function(url, cb) {
+	        // Only in the browser please
+	        var ajax;
+	        var loading = true;
+
+	        if(window.XMLHttpRequest) { // Mozilla, Safari, ...
+	            ajax = new XMLHttpRequest();
+	        }
+	        else if(window.ActiveXObject) { // IE 8 and older
+	            /* global ActiveXObject */
+	            ajax = new ActiveXObject('Microsoft.XMLHTTP');
+	        }
+
+	        ajax.onreadystatechange = function() {
+	            if(ajax.readyState === 4 && loading) {
+	                loading = false;
+	                if(ajax.status === 0 || ajax.status === 200) {
+	                    cb(null, ajax.responseText);
+	                }
+	                else {
+	                    cb(ajax.responseText);
+	                }
+	            }
+	        };
+
+	        url += (url.indexOf('?') === -1 ? '?' : '&') + 's=' +
+	               (new Date().getTime());
+
+	        ajax.open('GET', url, this.async);
+	        ajax.send();
+	    }
+	});
+
+	module.exports = {
+	    WebLoader: WebLoader,
+	    PrecompiledLoader: PrecompiledLoader
+	};
+
+
+/***/ },
+/* 15 */
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict';
+
+	var path = __webpack_require__(3);
+	var Obj = __webpack_require__(5);
+	var lib = __webpack_require__(4);
+
+	var Loader = Obj.extend({
+	    on: function(name, func) {
+	        this.listeners = this.listeners || {};
+	        this.listeners[name] = this.listeners[name] || [];
+	        this.listeners[name].push(func);
+	    },
+
+	    emit: function(name /*, arg1, arg2, ...*/) {
+	        var args = Array.prototype.slice.call(arguments, 1);
+
+	        if(this.listeners && this.listeners[name]) {
+	            lib.each(this.listeners[name], function(listener) {
+	                listener.apply(null, args);
+	            });
+	        }
+	    },
+
+	    resolve: function(from, to) {
+	        return path.resolve(path.dirname(from), to);
+	    },
+
+	    isRelative: function(filename) {
+	        return (filename.indexOf('./') === 0 || filename.indexOf('../') === 0);
+	    }
+	});
+
+	module.exports = Loader;
+
+
+/***/ },
+/* 16 */
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict';
+
+	var Loader = __webpack_require__(15);
+
+	var PrecompiledLoader = Loader.extend({
+	    init: function(compiledTemplates) {
+	        this.precompiled = compiledTemplates || {};
+	    },
+
+	    getSource: function(name) {
+	        if (this.precompiled[name]) {
+	            return {
+	                src: { type: 'code',
+	                       obj: this.precompiled[name] },
+	                path: name
+	            };
+	        }
+	        return null;
+	    }
+	});
+
+	module.exports = PrecompiledLoader;
+
+
+/***/ },
+/* 17 */
+/***/ function(module, exports) {
+
+	'use strict';
+
+	function cycler(items) {
+	    var index = -1;
+
+	    return {
+	        current: null,
+	        reset: function() {
+	            index = -1;
+	            this.current = null;
+	        },
+
+	        next: function() {
+	            index++;
+	            if(index >= items.length) {
+	                index = 0;
+	            }
+
+	            this.current = items[index];
+	            return this.current;
+	        },
+	    };
+
+	}
+
+	function joiner(sep) {
+	    sep = sep || ',';
+	    var first = true;
+
+	    return function() {
+	        var val = first ? '' : sep;
+	        first = false;
+	        return val;
+	    };
+	}
+
+	var globals = {
+	    range: function(start, stop, step) {
+	        if(!stop) {
+	            stop = start;
+	            start = 0;
+	            step = 1;
+	        }
+	        else if(!step) {
+	            step = 1;
+	        }
+
+	        var arr = [];
+	        for(var i=start; i<stop; i+=step) {
+	            arr.push(i);
+	        }
+	        return arr;
+	    },
+
+	    // lipsum: function(n, html, min, max) {
+	    // },
+
+	    cycler: function() {
+	        return cycler(Array.prototype.slice.call(arguments));
+	    },
+
+	    joiner: function(sep) {
+	        return joiner(sep);
+	    }
+	};
+
+	module.exports = globals;
+
+
+/***/ },
+/* 18 */
+/***/ function(module, exports) {
+
+	function installCompat() {
+	  'use strict';
+
+	  // This must be called like `nunjucks.installCompat` so that `this`
+	  // references the nunjucks instance
+	  var runtime = this.runtime; // jshint ignore:line
+	  var lib = this.lib; // jshint ignore:line
+
+	  var orig_contextOrFrameLookup = runtime.contextOrFrameLookup;
+	  runtime.contextOrFrameLookup = function(context, frame, key) {
+	    var val = orig_contextOrFrameLookup.apply(this, arguments);
+	    if (val === undefined) {
+	      switch (key) {
+	      case 'True':
+	        return true;
+	      case 'False':
+	        return false;
+	      case 'None':
+	        return null;
+	      }
+	    }
+
+	    return val;
+	  };
+
+	  var orig_memberLookup = runtime.memberLookup;
+	  var ARRAY_MEMBERS = {
+	    pop: function(index) {
+	      if (index === undefined) {
+	        return this.pop();
+	      }
+	      if (index >= this.length || index < 0) {
+	        throw new Error('KeyError');
+	      }
+	      return this.splice(index, 1);
+	    },
+	    remove: function(element) {
+	      for (var i = 0; i < this.length; i++) {
+	        if (this[i] === element) {
+	          return this.splice(i, 1);
+	        }
+	      }
+	      throw new Error('ValueError');
+	    },
+	    count: function(element) {
+	      var count = 0;
+	      for (var i = 0; i < this.length; i++) {
+	        if (this[i] === element) {
+	          count++;
+	        }
+	      }
+	      return count;
+	    },
+	    index: function(element) {
+	      var i;
+	      if ((i = this.indexOf(element)) === -1) {
+	        throw new Error('ValueError');
+	      }
+	      return i;
+	    },
+	    find: function(element) {
+	      return this.indexOf(element);
+	    },
+	    insert: function(index, elem) {
+	      return this.splice(index, 0, elem);
+	    }
+	  };
+	  var OBJECT_MEMBERS = {
+	    items: function() {
+	      var ret = [];
+	      for(var k in this) {
+	        ret.push([k, this[k]]);
+	      }
+	      return ret;
+	    },
+	    values: function() {
+	      var ret = [];
+	      for(var k in this) {
+	        ret.push(this[k]);
+	      }
+	      return ret;
+	    },
+	    keys: function() {
+	      var ret = [];
+	      for(var k in this) {
+	        ret.push(k);
+	      }
+	      return ret;
+	    },
+	    get: function(key, def) {
+	      var output = this[key];
+	      if (output === undefined) {
+	        output = def;
+	      }
+	      return output;
+	    },
+	    has_key: function(key) {
+	      return this.hasOwnProperty(key);
+	    },
+	    pop: function(key, def) {
+	      var output = this[key];
+	      if (output === undefined && def !== undefined) {
+	        output = def;
+	      } else if (output === undefined) {
+	        throw new Error('KeyError');
+	      } else {
+	        delete this[key];
+	      }
+	      return output;
+	    },
+	    popitem: function() {
+	      for (var k in this) {
+	        // Return the first object pair.
+	        var val = this[k];
+	        delete this[k];
+	        return [k, val];
+	      }
+	      throw new Error('KeyError');
+	    },
+	    setdefault: function(key, def) {
+	      if (key in this) {
+	        return this[key];
+	      }
+	      if (def === undefined) {
+	        def = null;
+	      }
+	      return this[key] = def;
+	    },
+	    update: function(kwargs) {
+	      for (var k in kwargs) {
+	        this[k] = kwargs[k];
+	      }
+	      return null;  // Always returns None
+	    }
+	  };
+	  OBJECT_MEMBERS.iteritems = OBJECT_MEMBERS.items;
+	  OBJECT_MEMBERS.itervalues = OBJECT_MEMBERS.values;
+	  OBJECT_MEMBERS.iterkeys = OBJECT_MEMBERS.keys;
+	  runtime.memberLookup = function(obj, val, autoescape) { // jshint ignore:line
+	    obj = obj || {};
+
+	    // If the object is an object, return any of the methods that Python would
+	    // otherwise provide.
+	    if (lib.isArray(obj) && ARRAY_MEMBERS.hasOwnProperty(val)) {
+	      return function() {return ARRAY_MEMBERS[val].apply(obj, arguments);};
+	    }
+
+	    if (lib.isObject(obj) && OBJECT_MEMBERS.hasOwnProperty(val)) {
+	      return function() {return OBJECT_MEMBERS[val].apply(obj, arguments);};
+	    }
+
+	    return orig_memberLookup.apply(this, arguments);
+	  };
+	}
+
+	module.exports = installCompat;
+
 
 /***/ }
 /******/ ]);
